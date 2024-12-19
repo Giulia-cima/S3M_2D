@@ -1,0 +1,258 @@
+
+{
+  "algorithm": {
+    "general": {
+      "title": "TOOL RUNNER",
+      "web-site": "",
+      "source": "Python library developed by CIMA Research Foundation",
+      "history": "1.0.0 [2023]",
+      "project-info": "s3m punctual re writing in python",
+      "algorithm": "s3m punctual"
+    }
+  },
+  "template": {
+      "source_file_datetime_generic": "%Y%m%d%H%M",
+      "source_file_datetime_generic_daily": "%Y%m%d",
+      "source_file_datetime_generic_w_seconds": "%Y%m%d%H%M%S",
+      "source_folder_datetime_generic": "%Y/%m/%d/",
+      "destination_file_datetime_generic": "%Y%m%d%H%M",
+      "destination_folder_datetime_generic": "%Y/%m/%d/",
+      "model_datetime_generic": "%Y%m%d%H%M",
+      "datetime_start_restart": "%Y%m%d%H%M"
+    },
+
+  "data": {
+    "info_file": {
+      "resampling":0,
+      "time_resolution": "1H",
+      "unit_conversion":0,
+      "Snow_depth_con":0.01,
+      "swe_con": 1,
+       "perturbations": {
+        "per_Obs":0,
+         "N": 100,
+        "folder_pkl": "/home/giulia/Cima_Giulia_blandini/S3M/quantile_mapping/",
+        "file_pkl": "objs_torgnon.pkl",
+        "interpolation_kind": "linear",
+        "positions": {
+          "R": 8,
+          "means" : 0,
+          "limits": 1},
+          "inflation_deflation":{
+              "prc_mm": 10,
+              "radiation": 1,
+              "temperature":0.5,
+              "rh":1,
+              "T_10D_˚C":0.3,
+              "T_1D_˚C": 0.3},
+         "scale_mean_prec": 0,
+         "pert_asymm_prec": 0,
+         "c_asymm_prec": 1,
+         "L_tilde" : "/home/giulia/Cima_Giulia_blandini/S3M/L_tilde.pkl",
+        "L0": "/home/giulia/Cima_Giulia_blandini/S3M/L0.pkl",
+         "markov":1,
+         "state_limits": "/home/giulia/Cima_Giulia_blandini/S3M/state_limits.pkl",
+        "pert_prec" : 1,
+        "pert_rad" : 1,
+        "pert_temp" : 1,
+        "pert_rh" : 1,
+         "R_state": "/home/giulia/Cima_Giulia_blandini/S3M/R_state_reconstructed.pkl",
+         "error_sigma_swe": 15,
+         "error_sigma_snow_depth": 0.01
+      },
+      "different_assilimation": 0,
+      "different_assilimation_time":0,
+      "file_assimilation": "/home/giulia/Cima_Giulia_blandini/S3M/different_assimilations/IT-Tor_2012-10-01-2023-04-30_noSnow.csv",
+
+      "change_part": 0,
+
+
+      "tags":{
+        "prc_tag":"prc_mm",
+        "snow_depth_tag":"snow_depth_m",
+         "rad_tag": "swin_wm-2",
+        "temperature_tag":"air_temp_degC",
+         "rh_tag":"rel_hum_perc",
+         "swe_tag": "swe_mm"
+      },
+
+
+      "fieldnames":{
+        "prc_mm": "sum",
+        "snow_depth_m": "first",
+        "swin_wm-2":"first",
+        "tair_degC":"first",
+        "rh": "first",
+        "swe_mm": "first"
+      },
+
+
+      "dynamic_inputs": {
+        "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/dataframe_sites_all_years/",
+        "file_name_input": "IT-Tor_2012-10-01-2023-04-30.csv",
+        "file_post_processed_name": "Tor_{source_file_datetime_generic}_1h.csv",
+        "date": 0,
+        "precipitation":0,
+        "Radiation":1,
+        "T_air":2,
+        "Relative_Humidity":3
+      },
+
+      "input": {
+        "Precipitation_mm": 0,
+        "Radiation_w/m2": 0,
+        "Temperature_air_˚C":0,
+        "Relative_humidity_%":0,
+        "T_10D_˚C":0 ,
+        "T_1D_˚C": 0},
+
+
+      "out": {
+        "Rainfall_mm": 0,
+        "Snowfall_mm": 0,
+        "Melting_mm": 0,
+        "Refreezing_mm": 0,
+         "outflow_mm":0,
+        "Sf_daily_cum":0,
+         "Time": 0,
+          "mass_balance": 0,
+          "mrad": 0,
+          "mr": 0,
+         "SWE_mm":0,
+         "Snow_age":0,
+         "H_D_m":0,
+        "theta_w": 0,
+        "H_S_m": 0,
+        "RHO_S_kg/m3": 0
+      },
+
+      "state": {
+        "SWE_W_mm": 0,
+        "SWE_D_mm": 0,
+        "RHO_D_kg/m3": 67.4,
+        "albedo": 0.95
+      },
+
+      "parameters": {
+        "alpha": 22,
+        "beta": -2.7,
+        "gamma": -0.2,
+        "RhoSnowMax": 550,
+        "RhoFreshSnowMax": 200,
+        "RhoSnowMin": 67.9,
+        "RhoW": 997,
+        "Ttau": 1,
+        "mrad0": 1.125,
+        "mr0":1.1,
+        "dt": 3600,
+        "window_melting":240,
+        "window_albedo": 24,
+        "latitude": 25.48,
+      "longitude": 7.34,
+        "multiplicative_albedo": 1
+      }
+  },
+
+      "output_file": {
+        "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_Tor/year_{source_file_datetime_generic}",
+        "file_name_nc": "results_{source_file_datetime_generic}_.nc",
+        "file_name": "results_{source_file_datetime_generic}_.csv",
+        "file_name_plot_swe": "swe_plot_{source_file_datetime_generic}_.png",
+        "file_name_plot_hs": "hs_plot_{source_file_datetime_generic}_.png",
+        "fig_name_1": "analysis_water_{source_file_datetime_generic}_.png",
+        "fig_name_2": "analysis_{source_file_datetime_generic}_.png",
+        "fig_name_3": "comparison_{source_file_datetime_generic}_.png",
+        "fig_name_4": "epsilon_{source_file_datetime_generic}.png",
+        "file_name_rmse": "rmse_{source_file_datetime_generic}_.txt",
+        "file_name_B" : "B_det_.pkl"
+      }
+    },
+
+  "log": {
+      "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_Tor/year_{source_file_datetime_generic}/",
+      "file_name": "logger_{source_file_datetime_generic}_s3m_punctual.txt",
+      "file_history": true
+    },
+
+    "time": {
+    "time_run": null,
+    "time_start": null,
+    "time_end": null,
+    "time_period": 1,
+    "time_frequency": "H",
+    "time_rounding": "H",
+     "time_reverse": false
+  },
+
+  "calibration": {
+   "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_Tor/calibration/Tor_{source_file_datetime_generic}_300_RMSE_HS/",
+    "file_name":"readme_calibration.txt",
+    "file_name_2":"parameters_calibration.csv",
+    "fig_name":"calibration.png",
+    "input_df": "input_df.csv",
+    "file_name_cal":"logger_calibration.txt",
+    "fig_name_error": "error_plot.png",
+    "fig_name_obj": "obj_func_plot.png",
+    "fig_name_sim": "sim_ensemble _plot.png",
+    "obj_values": "obj_values.npz",
+    "calibrate": 0,
+
+     "Labels_all" :{
+    "mrad":0,
+     "mr": 0,
+     "window_melting": 0
+},
+    "Labels_mr_window": {
+      "mr": 0,
+      "window_melting": 0
+    },
+
+    "Labels_mr": {
+      "mr": 0
+    },
+   "samp_strat": "lhs",
+   "distr_fun" : "st.uniform",
+   "N":300,
+
+    "xmin_all" :{
+    "mrad": 0.8,
+    "mr": 0.5,
+    "window_melting": 24
+  },
+  "xmax_all" : {
+    "mrad": 3,
+    "mr": 2.5,
+    "window_melting":240
+  },
+    "xmin_mr_window" : {
+    "mr": 0.5,
+    "window_melting": 24
+    },
+    "xmax_mr_window" : {
+    "mr": 2.5,
+    "window_melting":240
+    },
+    "xmin_mr" : {
+    "mr": 0.5
+    },
+    "xmax_mr" : {
+    "mr": 2.5
+    }
+  },
+    "check":{
+      "variable_1" : "H_S_m",
+      "variable_2" : "SWE_mm"
+    }
+
+
+}
+
+
+
+
+
+
+
+
+
+
