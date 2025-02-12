@@ -5,12 +5,13 @@
       "title": "TOOL RUNNER",
       "web-site": "",
       "source": "Python library developed by CIMA Research Foundation",
-      "history": "1.0.0 [2023]",
-      "project-info": "s3m punctual re writing in python",
-      "algorithm": "s3m punctual"
+      "history": "2.0.0 [2025]",
+      "project-info": "s3m 2D re-writing in python",
+      "algorithm": "s3m 2D"
     }
   },
   "template": {
+      "source_file_datetime_generic_year": "%Y" ,
       "source_file_datetime_generic": "%Y%m%d%H%M",
       "source_file_datetime_generic_daily": "%Y%m%d",
       "source_file_datetime_generic_w_seconds": "%Y%m%d%H%M%S",
@@ -23,6 +24,7 @@
 
   "data": {
     "info_file": {
+      "input_path":  "/home/giulia/Desktop/prova/daily_summaries/",
       "resampling":0,
       "time_resolution": "1H",
       "unit_conversion":0,
@@ -62,17 +64,17 @@
       },
       "different_assilimation": 0,
       "different_assilimation_time":0,
-      "file_assimilation": "/home/giulia/Cima_Giulia_blandini/S3M/different_assimilations/IT-Tor_2012-10-01-2023-04-30_noSnow.csv",
+      "file_assimilation": "",
 
       "change_part": 0,
 
 
       "tags":{
-        "prc_tag":"prc_mm",
+        "prc_tag":"Rain_SOMMA",
         "snow_depth_tag":"snow_depth_m",
-         "rad_tag": "swin_wm-2",
-        "temperature_tag":"air_temp_degC",
-         "rh_tag":"rel_hum_perc",
+         "rad_tag": "IncRadiation_MEDIA",
+        "temperature_tag":"AirTemperature_MEDIA",
+         "rh_tag":"RelHumidity_MEDIA",
          "swe_tag": "swe_mm"
       },
 
@@ -85,27 +87,6 @@
         "rh": "first",
         "swe_mm": "first"
       },
-
-
-      "dynamic_inputs": {
-        "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/dataframe_sites_all_years/",
-        "file_name_input": "IT-Tor_2012-10-01-2023-04-30.csv",
-        "file_post_processed_name": "Tor_{source_file_datetime_generic}_1h.csv",
-        "date": 0,
-        "precipitation":0,
-        "Radiation":1,
-        "T_air":2,
-        "Relative_Humidity":3
-      },
-
-      "input": {
-        "Precipitation_mm": 0,
-        "Radiation_w/m2": 0,
-        "Temperature_air_˚C":0,
-        "Relative_humidity_%":0,
-        "T_10D_˚C":0 ,
-        "T_1D_˚C": 0},
-
 
       "out": {
         "Rainfall_mm": 0,
@@ -144,9 +125,9 @@
         "Ttau": 1,
         "mrad0": 1.125,
         "mr0":1.1,
-        "dt": 3600,
-        "window_melting":240,
-        "window_albedo": 24,
+        "dt": 360,
+        "window_melting":10,
+        "window_albedo": 1,
         "latitude": 25.48,
       "longitude": 7.34,
         "multiplicative_albedo": 1
@@ -154,7 +135,7 @@
   },
 
       "output_file": {
-        "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_Tor/year_{source_file_datetime_generic}",
+        "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M_2D/output_VDA/year_{source_file_datetime_generic_year}/",
         "file_name_nc": "results_{source_file_datetime_generic}_.nc",
         "file_name": "results_{source_file_datetime_generic}_.csv",
         "file_name_plot_swe": "swe_plot_{source_file_datetime_generic}_.png",
@@ -169,8 +150,8 @@
     },
 
   "log": {
-      "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_Tor/year_{source_file_datetime_generic}/",
-      "file_name": "logger_{source_file_datetime_generic}_s3m_punctual.txt",
+      "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M_2D/output_VDA/year_{source_file_datetime_generic_year}/",
+      "file_name": "logger_{source_file_datetime_generic_year}_s3m_punctual.txt",
       "file_history": true
     },
 
@@ -185,7 +166,7 @@
   },
 
   "calibration": {
-   "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_Tor/calibration/Tor_{source_file_datetime_generic}_300_RMSE_HS/",
+   "folder_name": "/home/giulia/Cima_Giulia_blandini/S3M/output_VDA/calibration/Tor_{source_file_datetime_generic}_300_RMSE_HS/",
     "file_name":"readme_calibration.txt",
     "file_name_2":"parameters_calibration.csv",
     "fig_name":"calibration.png",

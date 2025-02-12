@@ -4,9 +4,10 @@ import os
 import argparse
 import numpy as np
 import logging
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as p
 from lib_utils_system import fill_tags2string
 from scipy.interpolate import interp1d
+import rasterio
 
 # ----------------------------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
@@ -211,6 +212,13 @@ def read_path(path):
         return pandas.read_csv(path)
     elif ext == ".xlsx" or ext == ".xls":
         return pandas.read_excel(path)
+    elif ext == ".tiff" or ext == ".tif":
+        with rasterio.open(path) as src:
+            meta = src.meta
+            # open tiff file
+            array = src.read(1)
+
+            return array
     else:
         logging.error("file path inconsistent")
         return None
@@ -312,3 +320,33 @@ def kge(simulations, evaluation):
     return kge_
 # ----------------------------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
+
+
+def save_raster(input_path, output_path, new_data):
+    """
+    Writes new data into a TIFF file while preserving metadata.
+
+    Parameters:
+        input_path (str): Path to the input TIFF file.
+        output_path (str): Path to save the new TIFF file.
+        new_data (numpy array): New data to write into the TIFF file.
+    """
+    # create a folder if it does not exist
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    with rasterio.open(input_path) as src:
+        metadata = src.meta.copy()  # Read metadata
+
+    # Ensure new_data has the correct shape (bands, rows, columns)
+    if new_data.ndim == 2:
+        new_data = np.expand_dims(new_data, axis=0)  # Add a new axis for bands
+
+    # plot the map and save it in the output folder
+    p.imshow(new_data[0])
+    p.colorbar()
+    p.savefig(output_path.replace('.tif', '.png'))
+    p.close()
+
+    with rasterio.open(output_path, "w", **metadata) as dst:
+        dst.write(new_data)
+

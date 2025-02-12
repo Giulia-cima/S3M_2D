@@ -1,12 +1,12 @@
 import numpy as np
 from scipy.optimize import minimize
 from S3M_2D_forcing import S3M_2D
-
-# check the start and end of  winter season using a snow depth threshold of 0.3 m , P > 0 and T <= 0.5
-def winter_season(SWE, P, T):
-    mask = (SWE > 0.3) & (P > 0) & (T <= 0.5)
+""" 
+# check the start and end of  winter season using average date of beginning and end of winter season. finestra continua
+def winter_season():
+    mask = 
     return mask
-
+"""
 # Define the cost function
 def f_cost(params, Meteo_map_data, Nivometer_data, stdev_swe, stdev_hs):
     mrad, mr, melting_window = params
@@ -63,3 +63,21 @@ for i in range(m):
     res = minimize(f_cost, x0=np.array([1, 1, 120]), args=(Meteo_map_data_cal, Nivometer_data, stdev_swe_obs, stdev_hs_obs ), bounds=[mrad_bounds, mr_bounds, melting_window_bounds], method='L-BFGS-B')
     params[i] = res.x
 
+
+# search correlation with altitude or with other meteo variables (e.g. temperature, precipitation, relative humidity, solar radiation)
+# in case compute a regression . calcolo la retta di regressione e la sottraggo ai dati osservati per ottenere i residui dei paramtri .
+# scompongo la varianza in più componenti , togliendo la dipendenza con le variabili.
+
+# con la retta di regressione t = aq+b t = temperatura q = quota a = pendenza b = intercetta a tutte le quote, intero dem.
+# ottengo una superficie di temperatura media . uguale per tutti gli istanti
+# prendo i valori osservati all'istante e sottraggo i valori della superficie di temperatura media
+# ottengo i residui della temperatura
+# con un metodo a mia scelta interpolo i residui ottenendo una mappa di correzione da sommare alla temperatura media.
+# ottengo una mappa di temperatura corretta.
+# fare lo stesso procedimento per tutte le correlazioni se presenti. in caso di più correlazioni la retta diventa un piano.
+# si sottraggono i piani e si interpolano i residui.
+# interpoòlazione :  try kriging.
+
+
+# INTERPOLATION ON THE MAP
+# Now that we have the optimal parameters for each station, we  can interpolate them on the map

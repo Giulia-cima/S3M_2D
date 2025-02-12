@@ -26,13 +26,9 @@ def PhasePart(P, alpha, beta, gamma, T_air, RH, change_part):
 # -----------------------------------------------------
 # -----------------------------------------------------
 
-
-# Update density
-import numpy as np
-
 def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vector, SWE_D, Snowfall, T_air):
-    Rho_D = state_vector[:, 2]
-    RhoS0 = output_vector[:, 15]
+    Rho_D = state_vector[:,:, 2]
+    RhoS0 = output_vector[:, :,15]
 
     # New snow events
     mask_snowfall_positive = Snowfall > 0
@@ -62,9 +58,18 @@ def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vect
 
     # Dry-snow density compaction
     mask_swe_d_positive = SWE_D > 0
-    Rho_D[mask_swe_d_positive] += 0.66 * (dt / 3600) * 0.001 * H_D[mask_swe_d_positive] * (Rho_D[mask_swe_d_positive] ** 2) * np.exp(
-        0.08 * SnowTemp[mask_swe_d_positive] - 0.021 * Rho_D[mask_swe_d_positive]
-    )
+    # Check the shape of mask_swe_d_positive
+    print(f"Shape of mask_swe_d_positive: {mask_swe_d_positive.shape}")
+
+    # Ensure mask_swe_d_positive is not empty before performing the operation
+    if mask_swe_d_positive.any():
+        Rho_D[mask_swe_d_positive] += 0.66 * (dt / 3600) * 0.001 * H_D[mask_swe_d_positive] * (
+                    Rho_D[mask_swe_d_positive] ** 2) * np.exp(
+            0.08 * SnowTemp[mask_swe_d_positive] - 0.021 * Rho_D[mask_swe_d_positive]
+        )
+    else:
+        print("mask_swe_d_positive is empty, skipping the operation.")
+
 
     # Check snow limits again
     Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)
@@ -73,7 +78,6 @@ def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vect
     H_D = np.where(Rho_D > 0, ((SWE_D / 1000) * RhoW) / Rho_D, 0)
 
     return Rho_D, RhoS0, SnowTemp, H_D
-
 
 # -----------------------------------------------------
 # -----------------------------------------------------
@@ -127,7 +131,6 @@ def refreezing(T_air, T_melting, SWE_W, mr0, cm, Ttau):
 # -----------------------------------------------------
 # -----------------------------------------------------
 
-
 def melting(ref_time, mrad0, mr0, T_air, T_melting, T_albedo, Ttau, Radiation, RhoW, dt, cm, SWE_D, albedo, As, SWE,
             Sf_daily_cum, multiplicative_term):
     lambdaf = 0.334
@@ -151,7 +154,6 @@ def melting(ref_time, mrad0, mr0, T_air, T_melting, T_albedo, Ttau, Radiation, R
     M = M_temp + M_rad
 
     return M, albedo, As, Sf_daily_cum, mrad, mr
-
 
 # -----------------------------------------------------
 # ----------------------------------------------------
@@ -196,7 +198,6 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term):
     albedo_new = np.clip(albedo_new, 0.5, 0.95)
 
     return albedo_new
-
 
 # -----------------------------------------------------
 # -----------------------------------------------------

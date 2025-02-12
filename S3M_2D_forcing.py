@@ -35,239 +35,239 @@ import warnings
 import joblib
 from statistics import NormalDist
 import netCDF4 as nc
+from typeguard import asyncgen_origin_types
 
 from lib_utils_system import fill_tags2string
 from lib_utils_logging import set_logging_file
 from lib_data_io_json import read_file_settings
-from lib_info_args import logger_name
 from S3M_2D_physics import S3M_2D_physics
-from lib_utilis_data_proc import pre_processing, get_args, rmse
-
+from lib_utilis_data_proc import get_args, rmse, read_path,save_raster
 import matplotlib.pyplot as plt
-import tensorflow as tf
+import rasterio
 
 
-def S3M_2D(arg,Meteo_map_data, Nivometer_data):
+
+
+# Your existing code
+
+def S3M_2D(arg):
     # Get and set algorithm settings
     alg_settings, alg_time_start, alg_time_end, alg_domain = get_args()
     data_settings = read_file_settings(alg_settings)
-    alg_time_stamp = (alg_time_start[:10].replace('/', '').replace(' ', '') +
-                      alg_time_end[:10].replace('/', '').replace(' ', ''))
     # ------------------------------------------------------------------------------------------------------------------
     # Set Logging file
+    # Set the logging level for rasterio to WARNING to suppress DEBUG messages
+    logging.getLogger('rasterio').setLevel(logging.WARNING)
+
+    logger_name = "S3M_2D_logger"
     log_stream = logging.getLogger(logger_name)
+    # ------------------------------------------------------------------------------------------------------------------
+    # Set algorithm settings
     current_time = time.strftime("%Y-%m-%d_%H_%M_%S", time.localtime())
-    log_folder_name = data_settings['log']['folder_name'] + current_time
     # ------------------------------------------------------------------------------------------------------------------
-    # Uptake common inputs from json
-    tag = {'source_file_datetime_generic': alg_time_stamp}
-    state_limits = pandas.read_pickle(data_settings['data']['info_file']["perturbations"]['state_limits'])
-    out = data_settings['data']['info_file']['out']
-    output = data_settings['data']['output_file']
-    dynamic_inputs = data_settings['data']['info_file']['dynamic_inputs']
-    parameters = data_settings['data']['info_file']['parameters']
-    change_part = data_settings['data']['info_file']["change_part"]
-    input_val = data_settings['data']['info_file']['input']
-    state = data_settings['data']['info_file']['state']
-    fieldnames_inputs = [key for key in input_val.keys()]
-    fieldnames_output = [key for key in out.keys()]
-    fieldnames_state = [key for key in state.keys()]
-    state_vector = [val for val in state.values()]
-    output_vector = [val for val in out.values()]
-    cal = data_settings['calibration']['calibrate']
-    data_assimilation = data_settings['data']['info_file']["perturbations"]["per_Obs"]
+    # Extract tags from the JSON file
+    air_temp_tag = data_settings['data'][ "info_file"]['tags']['temperature_tag']
+    precip_tag = data_settings['data'][ "info_file"]['tags']['prc_tag']
+    rel_hum_tag = data_settings['data'][ "info_file"]['tags']['rh_tag']
+    solar_rad_tag = data_settings['data'][ "info_file"]['tags']['rad_tag']
+    snow_tag = data_settings['data'][ "info_file"]['tags']['snow_depth_tag']
+    swe_tag = data_settings['data'][ "info_file"]['tags']['swe_tag']
     # ------------------------------------------------------------------------------------------------------------------
-    # choose between calibrate, open loop, data assimilation
-
-    if cal == 1:
-        project_name = 'PhD_project  S3M 2D -CALIBRATION'
-        alg_type = 'PYTHON VERSION'
-        log_stream.info(' ============================================================================')
-        log_stream.info('[' + project_name + ' ' + alg_type + ' - ')
-        log_stream.info(str(tag))
-        parameters["mrad0"] = np.round(arg[0], 3)
-        parameters["mr0"] = np.round(arg[1], 3)
-        parameters["window_melting"] = int(arg[2])
-        meteo = np.random.rand(3650, 6)
-        state = np.random.rand(4, 3650)
-        output = np.random.rand(16, 3650)
-
-        return
-
-    if data_assimilation == 1:
-        project_name = 'PhD_project  S3M 2D -DATA ASSIMILATION'
-        alg_type = 'PYTHON VERSION'
-        log_stream.info(' ============================================================================')
-        log_stream.info('[' + project_name + ' ' + alg_type + ' - ')
-        log_stream.info(str(tag))
-        return
-
-    if data_assimilation == 0 and cal == 0:
-        project_name = 'PhD_project  S3M 2D -OPEN LOOP'
-        alg_type = 'PYTHON VERSION'
-        log_stream.info(' ============================================================================')
-        log_stream.info('[' + project_name + ' ' + alg_type + ' - ')
-        log_stream.info(str(tag))
-    # ------------------------------------------------------------------------------------------------------------------
-    # Set logging file and output file
-    file_name = fill_tags2string(data_settings['log']['file_name'], data_settings['template'], tag)
-    log_folder_name = fill_tags2string(log_folder_name, data_settings['template'], tag)
-    set_logging_file(logger_name=logger_name, logger_file=os.path.join(log_folder_name, file_name))
-    output['folder_name'] = log_folder_name
-
-    # ------------------------------------------------------------------------------------------------------------------
-    # just to write the code
-    # OPEN NET CDF FILE. it contains map of meteo data(prec, rad, temp, rh)  from 40 stations over 10 years
-    # the file is 40x6x3650
-    # CREATE A RANDOM MATRIX 40x6x3650
-    meteo = np.random.rand(40, 6, 3650)
-    # create a matrix of state variables 40x4x3650
-    state_matrix = np.random.rand(40, 4, 3650)
-    output_matrix = np.random.rand(40, 16, 3650)
-    # OBSERVATION IS A MAP OF SWE AND SNOW DEPTH FROM 40 STATIONS OVER 10 YEARS
-    # THE FILE IS 40x2x3650
-    # CREATE A RANDOM MATRIX 40x2x3650
-    observation = np.random.rand(40, 2, 3650)
-    # Define the start and end times
-    start_time = "2002-10-01 00:00:00"
-    end_time = "2012-09-30 23:00:00"
-
-    # Create a date range with 1-hour frequency
-    time_vector = pandas.date_range(start=start_time, end=end_time, freq='H')
-
-    # Convert to a list if needed
-    Time = time_vector.tolist()
-
-    # -------------------------------------------------------------------------------------------------------
-    # initialize the first element of the state matrix and output matrix with  state and output vector
-    state_matrix[:, :, 0] = state_vector
-    output_matrix[:, :, 0] = output_vector
-    M = meteo.shape[2]
-    # -------------------------------------------------------------------------------------------------------
-    if data_assimilation ==0 and cal == 0:
-        # OPEN LOOP
-        for i in range(1, M):
-            meteo[:, :, i], state_matrix[:, :, i], output_matrix[:, :, i], mass_balance = S3M_2D_physics(log_stream,
-                                                                                                         meteo[:, :, i],
-                                                                                                         dynamic_inputs,
-                                                                                                         parameters,
-                                                                                                         state_matrix[:,
-                                                                                                         :, i - 1],
-                                                                                                         output_matrix[
-                                                                                                         :, :, i - 1],
-                                                                                                         Time[i],
-                                                                                                         change_part)
-
-    # ------------------------------------------------------------------------------------------------------
-    if cal == 1:
-        # CALIBRATION
-        N = Nivometer_data.shape[0]
-        for i in range(1, N):
-                meteo[:, i], state[:, i], output[:, i], mass_balance = S3M_2D_physics(log_stream, meteo[:, i],
-                                                                                      dynamic_inputs, parameters,
-                                                                                      state[:, i - 1],
-                                                                                      output[:, i - 1],
-                                                                                      Time[i], change_part)
-
-        # ------------------------------------------------------------------------------------------------------
-        # store variables
-        # ------------------------------------------------------------------------------------------------------
-        # plot variables
-        # ------------------------------------------------------------------------------------------------------
-        # compute RMSE
-        rmse_swe = rmse(output[:, 10], Nivometer_data[i, 0])
-        rmse_hs = rmse(output[:, 14], Nivometer_data[i, 1])
-
-        return rmse_swe, rmse_hs
-
-    if data_assimilation == 1:
-        for i in range(1, M):
+    input_path = data_settings['data']['info_file']['input_path']
+    # List all year folders inside the input_path
+    years = [f for f in os.listdir(input_path) if os.path.isdir(os.path.join(input_path, f))]
+    # Iterate through each year folder
+    for year in years:
+        # create only one log for each year
+        tag = {'source_file_datetime_generic_year': year}
+        log_folder_name = fill_tags2string(data_settings["log"]["folder_name"], data_settings['template'], tag)
+        logger_name = logger_name
+        # Set logging file
+        file_name = fill_tags2string(data_settings['log']['file_name'], data_settings['template'], tag)
+        set_logging_file(logger_name=logger_name, logger_file=os.path.join(log_folder_name, file_name))
+        # --------------------------------------------------------------------------------------------------------------
 
 
-            meteo[:, :, i],  state_matrix[:, :, i], output_matrix[:, :, i], mass_balance = S3M_2D_physics(log_stream, meteo[:, :, i],
-                                                                                   dynamic_inputs, parameters,
-                                                                                   state_matrix[:, :, i - 1],
-                                                                                   output_matrix[:, :, i - 1],
-                                                                                   Time[i], change_part)
-        # ------------------------------------------------------------------------------------------------------
-        # data assimilation
-        # ------------------------------------------------------------------------------------------------------
-        # store variables
-        # ------------------------------------------------------------------------------------------------------
-        # plot variables
-        # ------------------------------------------------------------------------------------------------------
-        # compute RMSE
-        # ------------------------------------------------------------------------------------------------------
-        return None
+        year_path = os.path.join(input_path, year)
+        months = [f for f in os.listdir(year_path) if os.path.isdir(os.path.join(year_path, f))]
+        for month in months:
+            month_path = os.path.join(year_path, month)
+            days = [f for f in os.listdir(month_path) if os.path.isdir(os.path.join(month_path, f))]
+            # Iterate through each day folder
+            for day in days:
+                n_days=1
+                day_path = os.path.join(month_path, day)
+                air_temp = read_path(os.path.join(day_path, f"{air_temp_tag}_{year}{month}{day}.tif"))
+                precip = read_path(os.path.join(day_path, f"{precip_tag}_{year}{month}{day}.tif"))
+                rel_hum = read_path(os.path.join(day_path, f"{rel_hum_tag}_{year}{month}{day}.tif"))
+                solar_rad = read_path(os.path.join(day_path, f"{solar_rad_tag}_{year}{month}{day}.tif"))
+                snow = read_path(os.path.join(day_path, f"{snow_tag}_{year}{month}{day}.tif"))
+                swe = read_path(os.path.join(day_path, f"{swe_tag}_{year}{month}{day}.tif"))
+                state_matrix_old = np.zeros((precip.shape[0], precip.shape[1], 4))
+                output_matrix_old = np.zeros((precip.shape[0], precip.shape[1], 16))
+                # -----------------------------------------------------------------------------------------------------
+                # ------------------------------------------------------------------------------------------------------
+                #  create a folder where to store the output from each day
+                tag_daily = f"{year}{month}{day}"
+                output_folder_name = os.path.join(fill_tags2string(data_settings['data']['output_file']['folder_name'], data_settings['template'],tag), tag_daily)
+                # ------------------------------------------------------------------------------------------------------
+                # Uptake common inputs from json
+                state_limits = pandas.read_pickle(data_settings['data']['info_file']["perturbations"]['state_limits'])
+                out = data_settings['data']['info_file']['out']
+                output = data_settings['data']['output_file']
+                parameters = data_settings['data']['info_file']['parameters']
+                change_part = data_settings['data']['info_file']["change_part"]
+                state = data_settings['data']['info_file']['state']
+                state_vector = [val for val in state.values()]
+                output_vector = [val for val in out.values()]
+                cal = data_settings['calibration']['calibrate']
+                data_assimilation = data_settings['data']['info_file']["perturbations"]["per_Obs"]
+                # ------------------------------------------------------------------------------------------------------
+                # choose between calibrate, open loop, data assimilation
+                if cal == 1:
+                    project_name = 'PhD_project  S3M 2D -CALIBRATION'
+                    alg_type = 'PYTHON VERSION'
+                    log_stream.info(' ============================================================================')
+                    log_stream.info('[' + project_name + ' ' + alg_type + ' - ')
+                    parameters["mrad0"] = np.round(arg[0], 3)
+                    parameters["mr0"] = np.round(arg[1], 3)
+                    parameters["window_melting"] = int(arg[2])
+                    # WRITE in the log the info related to time
+                    log_stream.info('[' + 'mrad0' + ' ' + str(parameters["mrad0"]) + ' - ')
+                    log_stream.info('[' + 'mr0' + ' ' + str(parameters["mr0"]) + ' - ')
+                    log_stream.info('[' + 'window_melting' + ' ' + str(parameters["window_melting"]) + ' - ')
+                    log_stream.info( f"{year}/{month}/{day}")
+                    return
 
-    if data_assimilation == 0 and cal == 0:
-        output_file = os.path.join(output['folder_name'], fill_tags2string(output['file_name'], data_settings['template'], tag))
+                if data_assimilation == 1:
+                    project_name = 'PhD_project  S3M 2D -DATA ASSIMILATION'
+                    alg_type = 'PYTHON VERSION'
+                    log_stream.info(' ============================================================================')
+                    log_stream.info('[' + project_name + ' ' + alg_type + ' - ')
+                    log_stream.info(f"{year}/{month}/{day}")
+                    return
 
-        with nc.Dataset(output_file, 'w', format='NETCDF4') as dataset:
-            # Define dimensions
-            dataset.createDimension('station', 40)
-            dataset.createDimension('variable', 6)
-            dataset.createDimension('time', 3650)
-            dataset.createDimension('state_var', 4)
-            dataset.createDimension('output_var', 16)
+                if data_assimilation == 0 and cal == 0:
+                    project_name = 'PhD_project  S3M 2D -OPEN LOOP'
+                    alg_type = 'PYTHON VERSION'
+                    log_stream.info(' ============================================================================')
+                    log_stream.info('[' + project_name + ' ' + alg_type + ' - ')
+                    log_stream.info(f"{year}/{month}/{day}")
+                # ------------------------------------------------------------------------------------------------------------------
 
-            # Create variables
-            meteo_var = dataset.createVariable('meteo', np.float32, ('station', 'variable', 'time'))
-            state_var = dataset.createVariable('state_matrix', np.float32, ('station', 'state_var', 'time'))
-            output_var = dataset.createVariable('output_matrix', np.float32, ('station', 'output_var', 'time'))
+                # create matrix of same dimension of the meteo map
+                meteo = np.zeros((air_temp.shape[0], air_temp.shape[1], 6))
+                # in the first element of the meteo matrix I store the temperature that i have opened with rasterio
+                # first convert air_temp to a 2D array of shape (nrows, ncols)
+                if n_days == 1:
+                    meteo[:, :, 0] = air_temp
+                    meteo[:, :, 1] = precip
+                    meteo[:, :, 2] = rel_hum
+                    meteo[:, :, 3] = solar_rad
+                    meteo[:, :, 4] = air_temp
+                    meteo[:, :, 5] = air_temp
+                else:
+                    n_days =+ 1
+                    meteo[:, :, 0] = air_temp
+                    meteo[:, :, 1] = precip
+                    meteo[:, :, 2] = rel_hum
+                    meteo[:, :, 3] = solar_rad
+                    meteo[:, :, 4] = air_temp
+                    meteo[:, :, 5] = air_temp+ meteo[:, :, 5] / 2
 
-            # Assign data to variables
-            meteo_var[:, :, :] = meteo
-            state_var[:, :, :] = state_matrix
-            output_var[:, :, :] = output_matrix
+                if n_days >= parameters["window_melting"]:
+                    n_days = 1
+                # GET THE TIME FROM THE YEAR MONTH AND DAY AND TUORN INTO DATA TIME
+                Time = pandas.to_datetime(f"{year}-{month}-{day}")
+                state_matrix = np.zeros((air_temp.shape[0], air_temp.shape[1], 4))
+                output_matrix = np.zeros((air_temp.shape[0], air_temp.shape[1], 16))
+                # -------------------------------------------------------------------------------------------------------
+                # initialize the first element of the state matrix and output matrix with  state and output vector
+                state_matrix_old[:, :,:] = state_vector
+                output_matrix_old[:, :, :]= output_vector
 
-            # Add attributes (optional)
-            dataset.description = 'Output data from S3M_2D model'
-            meteo_var.units = 'unknown'
-            state_var.units = 'unknown'
-            output_var.units = 'unknown'
-        # ------------------------------------------------------------------------------------------------------
-        # COMPUTE RMSE FOR SWE AND SNOW DEPTH
-        RMSE_SWE = rmse(output_matrix[:, 10, :], observation[:, 0, :])
-        # RMSE FOR SNOW DEPTH
-        RMSE_SNOW_DEPTH = rmse(output_matrix[:, 14, :], observation[:, 1, :])
-        # plot the info on the log file
-        log_stream.info('RMSE_SWE: ' + str(RMSE_SWE))
-        log_stream.info('RMSE_SNOW_DEPTH: ' + str(RMSE_SNOW_DEPTH))
-        file_txt = fill_tags2string((os.path.join(output['folder_name'], output['file_name_rmse'])),
-                                         data_settings['template'], tag)
-        # WRITE THE INFOT IN A TXT FILE
-        with open(file_txt, 'w') as f:
-            f.write('RMSE_SWE: ' + str(RMSE_SWE) + '\n')
-            f.write('RMSE_SNOW_DEPTH: ' + str(RMSE_SNOW_DEPTH) + '\n')
-        # ------------------------------------------------------------------------------------------------------
-        # Plot with imshow the  SWE and SNOW DEPTH modelled and observed
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-        axs[0].imshow(output_matrix[:, 10, :], cmap='viridis', aspect='auto')
-        axs[0].set_title('SWE modelled')
-        axs[1].imshow(observation[:, 0, :], cmap='viridis', aspect='auto')
-        axs[1].set_title('SWE observed')
-        # store the plot
-        file_plot = fill_tags2string((os.path.join(output['folder_name'], output["file_name_plot_swe"])),
-                                              data_settings['template'], tag)
-        plt.savefig(file_plot)
+                # -------------------------------------------------------------------------------------------------------
+                if data_assimilation ==0 and cal == 0:
 
-        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
-        axs[0].imshow(output_matrix[:, 14, :], cmap='viridis', aspect='auto')
-        axs[0].set_title('SNOW DEPTH modelled')
-        axs[1].imshow(observation[:, 1, :], cmap='viridis', aspect='auto')
-        axs[1].set_title('SNOW DEPTH observed')
-        # store the plot
-        file_plot = fill_tags2string((os.path.join(output['folder_name'], output["file_name_plot_hs"])),
-                                              data_settings['template'], tag)
-        plt.savefig(file_plot)
-        # ------------------------------------------------------------------------------------------------------
+                    meteo, state_matrix, output_matrix, mass_balance = S3M_2D_physics(log_stream,meteo,parameters,
+                                                                                    state_matrix_old,output_matrix_old,Time,change_part)
+
+                    # Check the shape and contents of output_matrix
+                    print(f"Shape of output_matrix: {output_matrix.shape}")
+                    print(f"Contents of output_matrix: {output_matrix}")
+
+                    # Extract snow_modelled from output_matrix
+                    swe_modelled = output_matrix[:, :, 10]
+                    snow_modelled = np.array(output_matrix[:, :, 14])
+
+                    # Check the shape and contents of snow_modelled
+                    print(f"Shape of snow_modelled: {snow_modelled.shape}")
+                    print(f"Contents of snow_modelled: {snow_modelled}")
+
+                    state_matrix_old = state_matrix
+                    output_matrix_old = output_matrix
+
+
+                # ------------------------------------------------------------------------------------------------------
+                if cal == 1:
+                    # CALIBRATION
+                    N = swe.shape[0]
+                    #for i in range(1, N):
+
+
+
+                    # ------------------------------------------------------------------------------------------------------
+                    # store variables
+                    # ------------------------------------------------------------------------------------------------------
+                    # plot variables
+                    # ------------------------------------------------------------------------------------------------------
+                    # compute RMSE
+                    rmse_swe = rmse(output[:, :,10], swe)
+                    rmse_hs = rmse(output[:, :,14], snow)
+
+                    return rmse_swe, rmse_hs
+                # ------------------------------------------------------------------------------------------------------
+                if data_assimilation == 1:
+                    #for i in range(1, M):
+
+
+
+                    # ------------------------------------------------------------------------------------------------------
+                    # data assimilation
+                    # ------------------------------------------------------------------------------------------------------
+                    # store variables
+                    # ------------------------------------------------------------------------------------------------------
+                    # plot variables
+                    # ------------------------------------------------------------------------------------------------------
+                    # compute RMSE
+                    # ------------------------------------------------------------------------------------------------------
+                    return None
+                # ------------------------------------------------------------------------------------------------------
+                # save the map of snow and swe in the output folder as tif file
+                snow_output_path = os.path.join(output_folder_name, 'snow_depth.tif')
+                swe_output_path = os.path.join(output_folder_name, 'swe.tif')
+                reference_file = os.path.join(day_path, f"{precip_tag}_{year}{month}{day}.tif")
+                # Assuming `snow` and `swe` are the arrays you want to save
+                save_raster(reference_file, snow_output_path, snow_modelled)
+                save_raster(reference_file, swe_output_path, swe_modelled)
+                # ------------------------------------------------------------------------------------------------------
+                # COMPUTE RMSE FOR SWE AND SNOW DEPTH
+                rmse_swe = rmse(output_matrix[:, :, 10], swe)
+                rmse_hs = rmse(output_matrix[:, :, 14], snow)
+                # WRITE THE INFOT IN A TXT FILE
+                with open(os.path.join(output_folder_name, 'RMSE.txt'), 'w') as f:
+                    f.write(f'RMSE SWE: {rmse_swe}\n')
+                    f.write(f'RMSE HS: {rmse_hs}\n')
+
+                # ------------------------------------------------------------------------------------------------------
+
+
+
+    # grafico famoso per controllo over 1 year of simulation
 
     return None
 
 
 if __name__ == "__main__":
   arg = []
-  Meteo_map_data =  []
-  Nivometer_data =  []
-  S3M_2D(arg, Meteo_map_data, Nivometer_data)
+  S3M_2D(arg)

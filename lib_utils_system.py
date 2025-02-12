@@ -127,6 +127,7 @@ def copy_file(file_path_src, file_path_dest):
 
 # -------------------------------------------------------------------------------------
 # Method to add time in an unfilled string (path or filename)
+
 def fill_tags2string(string_raw, tags_format=None, tags_filling=None):
 
     apply_tags = False
@@ -166,8 +167,8 @@ def fill_tags2string(string_raw, tags_format=None, tags_filling=None):
         return string_filled
     else:
         return string_raw
-# -------------------------------------------------------------------------------------
 
+# -------------------------------------------------------------------------------------
 
 # -------------------------------------------------------------------------------------
 # Method to get dictionary values using a key
