@@ -51,15 +51,13 @@ def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vect
     Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)
 
     # Compute updated dry-snow height
-    H_D = np.where(Rho_D > 0, ((SWE_D / 1000) * RhoW) / Rho_D, 0)
+    H_D = np.where(Rho_D > 0, ((SWE_D / 1000) * RhoW) / Rho_D, 0) # expressed in m
 
     # Linear approximation for snow temperature in ˚C
     SnowTemp = np.where(T_air >= 0, 0, 0.5 * T_air)
 
     # Dry-snow density compaction
     mask_swe_d_positive = SWE_D > 0
-    # Check the shape of mask_swe_d_positive
-    print(f"Shape of mask_swe_d_positive: {mask_swe_d_positive.shape}")
 
     # Ensure mask_swe_d_positive is not empty before performing the operation
     if mask_swe_d_positive.any():
@@ -67,9 +65,6 @@ def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vect
                     Rho_D[mask_swe_d_positive] ** 2) * np.exp(
             0.08 * SnowTemp[mask_swe_d_positive] - 0.021 * Rho_D[mask_swe_d_positive]
         )
-    else:
-        print("mask_swe_d_positive is empty, skipping the operation.")
-
 
     # Check snow limits again
     Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)

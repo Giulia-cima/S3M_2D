@@ -35,8 +35,8 @@ def S3M_2D_physics(log_stream, meteo, parameters, state_vector, output_vector, T
     T_air = meteo[:, :,0]
     P = meteo[:,:,1]
     RH = meteo[:,:,2]
-    lat = parameters["latitude"]
-    lon = parameters["longitude"]
+    lat = parameters["lat"]
+    lon = parameters["lon"]
     # make griD of P.shape[0]x P.shape[1] with the same value of LAT
     lat = np.tile(lat, (P.shape[0], P.shape[1]))
     # make griD of P.shape[0]x P.shape[1] with the same value of LON
@@ -64,24 +64,13 @@ def S3M_2D_physics(log_stream, meteo, parameters, state_vector, output_vector, T
     Radiation[mask] = 0
     """
     # ----------------------------------------------------------------------------------------
-    """ 
-    # first sanity check
-    # Vectorized operation to set output_vector[10] to 0 if it is less than 0.01
-    mask = output_vector[:, :,10] < 0.01
-    output_vector[mask, 10] = 0
-
-    # Vectorized operation to set state_vector elements to 0
-    state_vector[mask, :-1] = 0
-
-    # Vectorized operation to set output_vector elements to 0 from index 11 onwards
-    output_vector[mask, 11:] = 0
-"""
-    # ----------------------------------------------------------------------------------------
+    """
     # first sanity check
     mask = output_vector[:, :, 10] < 0.01
-    output_vector[mask, 10] = 0
+    output_vector[mask] = 0
     state_vector[mask, :-1] = 0
     output_vector[mask, 11:] = 0
+    """
     SWE_W, SWE_D = state_vector[:, :, 0], state_vector[:, :, 1]
     Sf_daily_cum = output_vector[:, :, 5]
     # -----------------------------------------------------------------------------------
@@ -93,10 +82,6 @@ def S3M_2D_physics(log_stream, meteo, parameters, state_vector, output_vector, T
     # Update SWE with rainfall and snowfall
     SWE_D += Snowfall
     SWE_W += Rainfall
-    # check the shape
-    print("sf shape after ", Sf_daily_cum.shape)
-    print("snowfall shape after ", Snowfall.shape)
-    print("rainfall shape after ", Rainfall.shape)
 
     # -----------------------------------------------------------------------------------------
     # Vectorized operation to handle Rainfall and SWE_D
@@ -129,7 +114,7 @@ def S3M_2D_physics(log_stream, meteo, parameters, state_vector, output_vector, T
                                           Snowfall, T_air)
     # ------------------------------------------------------------------------------------------------------------------
     # Compute melting and refreezing
-    cm = dt / 3600
+    cm = dt / 86400 # move from 1d to the current time step
     T_10D, T_1D, Ttau, mrad0, mr0 = meteo[:,:,4], meteo[:,:,5], parameters["Ttau"], parameters["mrad0"], parameters["mr0"]
     As, albedo, multiplicative_term = output_vector[:,:,11], state_vector[:,:,3], parameters["multiplicative_albedo"]
 
@@ -233,13 +218,12 @@ def S3M_2D_physics(log_stream, meteo, parameters, state_vector, output_vector, T
     state_vector_new = np.stack(variables, axis=-1)
     # convert time into a float
     Time = Time.hour + Time.minute / 60
-    output_variables = [Rainfall, Snowfall, Melting, Refreezing, outflow, Sf_daily_cum, Time, mass_balance,
-                        mrad, mr, SWE, As, H_D, theta_w, H_S, Rho_s]
+    # make time have the same shape as the output variables
+    Time = np.tile(Time, (P.shape[0], P.shape[1]))
 
+    output_variables = np.array([Rainfall, Snowfall, Melting, Refreezing, outflow, Sf_daily_cum, Time, mass_balance,
+                        mrad, mr, SWE, As, H_D, theta_w, H_S, Rho_s])
+    output_vector_new = np.stack(output_variables, axis=2)
 
-#  make output_vector_new a 3D array with the same shape as output_vector but with an additional dimension
-    output_vector_new = np.zeros((output_vector.shape[0], output_vector.shape[1], len(output_variables)))
-    for i, output_variable in enumerate(output_variables):
-        output_vector_new[:, :, i] = output_variable
 
     return meteo, state_vector_new, output_vector_new, mass_balance

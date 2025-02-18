@@ -8,6 +8,8 @@ import matplotlib.pyplot as p
 from lib_utils_system import fill_tags2string
 from scipy.interpolate import interp1d
 import rasterio
+import xarray as xr
+
 
 # ----------------------------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
@@ -343,10 +345,51 @@ def save_raster(input_path, output_path, new_data):
 
     # plot the map and save it in the output folder
     p.imshow(new_data[0])
-    p.colorbar()
+    p.colorbar(cmap='viridis_r')
     p.savefig(output_path.replace('.tif', '.png'))
     p.close()
 
     with rasterio.open(output_path, "w", **metadata) as dst:
         dst.write(new_data)
+# ----------------------------------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+
+# from geo_utils.py dam package author L. Trotter
+
+def ltln2idx_from_2dDataArray(input_dem, lat, lon):
+    """
+    Given a DEM file and a specific latitude and longitude, find the corresponding row and column index.
+
+    Parameters:
+    - input_dem (str): Path to the DEM file.
+    - lat (float): Latitude coordinate.
+    - lon (float): Longitude coordinate.
+
+    Returns:
+    - (int, int): Row and column indices in the DEM array.
+    """
+    # Read the header information
+    with open(input_dem, 'r') as f:
+        header = [next(f) for _ in range(6)]
+
+    # Extract relevant metadata from the header
+    ncols = int(header[0].split()[1])
+    nrows = int(header[1].split()[1])
+    xllcorner = float(header[2].split()[1])
+    yllcorner = float(header[3].split()[1])
+    cellsize = float(header[4].split()[1])
+
+    # Compute column (x direction) and row (y direction) indices
+    col_idx = int((lon - xllcorner) / cellsize)
+    row_idx = int((yllcorner + (nrows - 1) * cellsize - lat) / cellsize)
+
+    # Ensure indices are within bounds
+    col_idx = max(0, min(col_idx, ncols - 1))
+    row_idx = max(0, min(row_idx, nrows - 1))
+
+    return row_idx, col_idx
+
+
 
