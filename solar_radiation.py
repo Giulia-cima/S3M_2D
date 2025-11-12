@@ -1,9 +1,9 @@
 import numpy as np
 
 def solarpos(h, doy, lat, lon):
-    """compute azimuth and elevation as a function of hour of day, day of year, and latitude and longitude
-    input: hour of day, day of year, latitude Nord, longitude Est
-    output: azimuth and elevation"""
+    """Compute azimuth and elevation as a function of hour of day, day of year, and latitude and longitude.
+    Input: hour of day, day of year, latitude (vector), longitude (vector).
+    Output: azimuth and elevation (2D arrays)."""
 
     doy = doy + h / 24
     gamma = 2 * np.pi * (doy - 1) / 365  # day angle [rad]
@@ -23,9 +23,9 @@ def solarpos(h, doy, lat, lon):
     return az, el  # azimuth and elevation
 
 def solar_radiation(h, doy, lat, lon):
-    """radiation at top of atmosphere as a function of hour of day, day of year, and latitude and longitude
-    input: hour of day, day of year, latitude, longitude
-    output: radiation at top of atmosphere"""
+    """Radiation at top of atmosphere as a function of hour of day, day of year, and latitude and longitude.
+    Input: hour of day, day of year, latitude (vector), longitude (vector).
+    Output: radiation at top of atmosphere (2D array)."""
 
     solar_constant = 1367  # W/m^2
     az, el = solarpos(h, doy, lat, lon)
@@ -33,14 +33,22 @@ def solar_radiation(h, doy, lat, lon):
     return R
 
 def solarhours(lat, lon, doy):
-    """compute sunrise and sunset hours as a function of day of year, latitude and longitude
-    input: day of year, latitude, longitude
-    output: sunrise and sunset hours hrise and hset"""
-    # create an array of hours from 0 to 23
-    h = np.arange(0, 24, 1)
-    # compute the elevation and azimuth for each hour
-    az, el = solarpos(h[:, np.newaxis], doy, lat, lon)
-    # find the hour of sunrise and sunset
-    hrise = np.min(h[np.any(el > 0, axis=1)])
-    hset = np.max(h[np.any(el > 0, axis=1)])
+    """Compute sunrise and sunset hours as a function of day of year, latitude, and longitude.
+    Input: day of year, latitude (vector), longitude (vector).
+    Output: sunrise and sunset hours (2D arrays)."""
+
+    h = np.arange(24).reshape(-1, 1, 1) * np.ones((1, lat.size, lon.size))
+    # Compute the elevation and azimuth for each hour
+    az, el = solarpos(h, doy, lat, lon)
+    # Find the hour of sunrise and sunset
+    mask = el > 0  # Create a mask where elevation is positive
+    # Find the hour of sunrise and sunset for each (lat, lon) point
+    # if lat and lon are 1d vector
+    if lat.ndim == 1:
+        # Compute sunrise and sunset hours as 1D vectors
+        hrise = np.min(np.where(mask, h, np.inf))
+        hset = np.max(np.where(mask, h, -np.inf))
+    else:
+        hrise = np.min(np.where(mask, np.arange(24).reshape(-1, 1, 1), np.inf), axis=0)
+        hset = np.max(np.where(mask, np.arange(24).reshape(-1, 1, 1), -np.inf), axis=0)  # Sunset hour
     return hrise, hset

@@ -22,19 +22,19 @@
 # -------------------------------------------------------------------------------------
 # Library
 
-from lib_utilis_flux import PhasePart, density, melting, refreezing, Hydraulics, Sterrain
+from lib_utilis_flux_1D import PhasePart, density, melting, refreezing, Hydraulics
 from solar_radiation import solar_radiation, solarhours
 import numpy as np
 from lib_utilis_data_proc import read_path
 
 
-def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_part, Ice_flag, lat, lon, slope, svf):
+def S3M_1D_physics(meteo, parameters, state_vector, output_vector, Time, change_part, Ice_flag, lat, lon, slope, svf):
     # ------------------------------------------------------------------------------------------------------------------
     # Meteorological input upload
-    T_air = meteo[:, :,  0]
-    P = meteo[:, :, 1]
-    RH = meteo[:, :,  2]
-    Radiation = meteo[:, :,  3]
+    T_air = meteo[:, 0]
+    P = meteo[:,1]
+    RH = meteo[:,2]
+    Radiation = meteo[:,3]
 
     # ------------------------------------------------------------------------------------------------------------------
     mask = P < 0  # True where P < 0
@@ -55,37 +55,35 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     MeltingDayCum[mask] = np.nan
     IceMassBalance = parameters["IceMassBalance"]
     try:
-        Ice_thickness = state_vector[:, :, 4]
+        Ice_thickness = state_vector[:, 4]
     except:
         Ice_thickness = np.zeros_like(P, dtype=float)
         Ice_thickness[mask] = np.nan
     # ------------------------------------------------------------------------------------------------------------------
 
-    if parameters["dt"] == 3600:
-        h = Time.hour
-        doy = Time.dayofyear
-        lat_grid, lon_grid = np.meshgrid(lat, lon, indexing='ij', sparse=True)
-        Rtoa = solar_radiation(h, doy, lat_grid, lon_grid)
-        hrise, hset = solarhours(lat_grid, lon_grid, doy)
-        mask_hour = (hrise <= h) & (h <= hset)
-        Radiation[mask_hour] = np.minimum(Rtoa[mask_hour] , Radiation[mask_hour] )
-        Radiation[~mask_hour] = 0.0
+    # Day of the year and hour of the day from the timestamp
+    h = Time.hour
+    doy = Time.timetuple().tm_yday
+    Rtoa = solar_radiation(h, doy, lat, lon)
+    hrise, hset = solarhours( lat,lon , doy)
+    mask_hour = (hrise <= h) & (h <= hset)
+    Radiation[mask_hour] = np.minimum(Rtoa[mask_hour], Radiation[mask_hour])
+    Radiation[~mask_hour] = 0.0
     # ------------------------------------------------------------------------------------------------------------------
     # Sanity check
-    mask_sanity = output_vector[ :, :,  10] < 0.01
+    mask_sanity = output_vector[ :,  10] < 0.01
     state_vector[mask_sanity, :-1] = 0
     output_vector[mask_sanity, 10:] = 0
-    # ------------------------------------------------------------------------------------------------------------------
-    if IceMassBalance == 1 or IceMassBalance == 2:
-         IceThickness_WE = Ice_thickness*917
-    # ------------------------------------------------------------------------------------------------------------------
-    SWE_W, SWE_D = state_vector[:, :, 0], state_vector[:, :, 1]
-    Sf_daily_cum = output_vector[:, :, 5]
-    # ------------------------------------------------------------------------------------------------------------------
+
+    SWE_W, SWE_D = state_vector[:,0], state_vector[:,1]
+    Sf_daily_cum = output_vector[:,5]
+    # ------------------------------------------------------------------------------------
+
     # Precipitation phase partitioning
     alpha, beta, gamma = parameters["alpha_p"], parameters["beta"], parameters["gamma"]
     Snowfall, Rainfall = PhasePart(P, alpha, beta, gamma, T_air, RH, change_part)
     Sf_daily_cum += Snowfall
+
     # ------------------------------------------------------------------------------------------------------------------
     SWE_D += Snowfall  # This is applied element-wise
     # Where SWE_D >= 10, rainfall goes to SWE_W
@@ -99,32 +97,33 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     SWE_D = np.maximum(SWE_D, 0)
     SWE_W = np.maximum(SWE_W, 0)
     SWE = SWE_D + SWE_W
-    # ------------------------------------------------------------------------------------------------------------------
+    #--------------------------------------------------------------------------------------------------
     # Compute snow density
     Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt = parameters["RhoSnowMin"], parameters["RhoSnowMax"], parameters[
         "RhoFreshSnowMax"], parameters["RhoW"], parameters["dt"]
-    IceMeltingCoeff = parameters["IceMeltingCoeff"]
     Rho_D, RhoS0, SnowTemp, H_D = density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vector, SWE_D,
                                           Snowfall, T_air)
+
     # ------------------------------------------------------------------------------------------------------------------
     # Compute melting and refreezing
     cm = dt / 86400
     mrad0, mr0 = parameters["mrad0"], parameters["mr0"]
+    IceMeltingCoeff = 0
     #mr0 = read_path(parameters["mr_calibrated_file"])
     #mrad0 = read_path(parameters["mrad_calibrated_file"])
 
-    As, albedo, multiplicative_term = (output_vector[:, :, 11], state_vector[:, :,  3],
+    As, albedo, multiplicative_term = (output_vector[:, 11], state_vector[:, 3],
                                        parameters["multiplicative_albedo"])
 
-    T_albedo,T_melting, Ttau = (meteo[:, :, 4], meteo[:, :,  5], parameters["Ttau"])
-    if parameters["OL"] == 0:
-        Radiation = Sterrain(As, albedo, T_albedo, Time, multiplicative_term, Ice_thickness, Ice_flag, SWE_D, Radiation, slope,
-                         svf)
+    T_albedo,T_melting, Ttau = (meteo[:,4], meteo[:,5], parameters["Ttau"])
+   # if parameters["OL"] == 0:
+       # Radiation = Sterrain(As, albedo, T_albedo, Time, multiplicative_term, Ice_thickness, Ice_flag, SWE_D, Radiation, slope,  svf)
 # ------------------------------------------------------------------------------------------------------------------
     Melting, albedo, As, mrad, mr, Melting_g, Sf_daily_cum = melting(Time,mrad0, mr0, T_air, T_melting, T_albedo, Ttau,
                                                                      Radiation, RhoW, dt, cm, SWE_D, albedo, As, SWE,
                                                                      Sf_daily_cum, multiplicative_term, Ice_flag, Ice_thickness, IceMeltingCoeff)
     Refreezing = refreezing(T_air, T_melting, SWE_W, mr0, cm, Ttau)
+    # ------------------------------------------------------------------------------------------------------------------
     # ------------------------------------------------------------------------------------------------------------------
     Melting = np.maximum(Melting, 0)
     Refreezing = np.maximum(Refreezing, 0)
@@ -143,7 +142,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     mask_melt_part = ~mask_melt_all
     SWE_D[mask_melt_part] -= Melting[mask_melt_part]
     SWE_W[mask_melt_part] += Melting[mask_melt_part]
-    SWE[mask_melt_part]  = SWE_D[mask_melt_part]  + SWE_W[mask_melt_part]
+    SWE[mask_melt_part] = SWE_D[mask_melt_part] + SWE_W[mask_melt_part]
 
     # Refreezing
     Refreezing = np.maximum(Refreezing, 0)
@@ -155,7 +154,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     SWE_W[mask_refreeze_all] = 0
     SWE[mask_refreeze_all] = SWE_D[mask_refreeze_all]
 
-    #Case 2: 0 < Refreezing < SWE_W
+    # Case 2: 0 < Refreezing < SWE_W
     mask_refreeze_part = (Refreezing > 0) & (Refreezing < SWE_W)
     Rho_D[mask_refreeze_part] = (SWE_D[mask_refreeze_part] + Refreezing[mask_refreeze_part]) / (
             (Refreezing[mask_refreeze_part] / 917) + (SWE_D[mask_refreeze_part] / Rho_D[mask_refreeze_part])
@@ -169,97 +168,6 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     SWE_W = np.maximum(SWE_W, 0)
     SWE = SWE_D + SWE_W
 
-    # ------------------------------------------------------------------------------------------------------------------
-    """ 
-    # Correct the logical operations with NumPy arrays
-    if Ice_flag == 1:
-        # PIXELS W/O GLACIERS AND WITH SNOW
-        mask = (SWE_D > 0.0) & (SWE_D <= Melting) & (IceThickness_WE <= 0.0)
-        Melting[mask] = SWE_D[mask]
-        Outflow_ExcessMelt[mask] = SWE_D[mask] + SWE_W[mask]
-        SWE_D[mask] = 0.0
-        SWE_W[mask] = 0.0
-        SWE[mask] = 0.0
-
-        mask = (SWE_D > 0.0) & (IceThickness_WE <= 0.0)
-        SWE_D[mask] -= Melting[mask]
-        SWE_W[mask] += Melting[mask]
-        SWE[mask] = SWE_D[mask] + SWE_W[mask]
-        # --------------------------------------------------------------------------------------------------------------
-        # PIXELS W GLACIERS AND WITH SNOW
-        mask = (SWE_D > 0) & (SWE_D <= Melting) & (IceThickness_WE > 0)
-        Outflow_ExcessMelt[mask] = SWE_D[mask] + SWE_W[mask]
-        IceThickness_WE[mask] -= (Melting[mask] - SWE_D[mask])
-        Melting_g[mask] += (Melting[mask] - SWE_D[mask])
-        SWE_D[mask] = 0
-        SWE_W[mask] = 0
-        SWE[mask] = 0
-        Ice_flag[mask] = 0
-
-        mask = (SWE_D > 0) & (IceThickness_WE > 0)
-        SWE_D[mask] -= Melting[mask]
-        SWE_W[mask] += Melting[mask]
-        SWE[mask] = SWE_D[mask] + SWE_W[mask]
-        # --------------------------------------------------------------------------------------------------------------
-        # PIXELS W GLACIERS BUT NO SNOW
-        mask = (SWE_D == 0) & (IceThickness_WE > 0) & (Melting_g > 0) & (Ice_flag > 0)
-        IceThickness_WE[mask] -= Melting_g[mask]
-        # --------------------------------------------------------------------------------------------------------------
-    elif Ice_flag == 2:
-    
-        #This second case regards a simulation with mass balance AND movement according to the deltaH parametrization,
-        #so here WE DO NOT subtract glacier melt from IceThickness_WE as simulation time passes. We store melt into
-        #MeltingGCumWY
-        
-        # PIXELS W/O GLACIERS AND WITH SNOW
-        mask = (SWE_D > 0) & (SWE_D <= Melting) & (IceThickness_WE <= 0)
-        Melting[mask] = SWE_D[mask]
-        Outflow_ExcessMelt[mask] = SWE_D[mask] + SWE_W[mask]
-        SWE_D[mask] = 0.0
-        SWE_W[mask] = 0.0
-        SWE[mask] = 0.0
-
-        mask = (SWE_D > 0) & (IceThickness_WE <= 0)
-        SWE_D[mask] -= Melting[mask]
-        SWE_W[mask] += Melting[mask]
-        SWE[mask] = SWE_D[mask] + SWE_W[mask]
-        # --------------------------------------------------------------------------------------------------------------
-        # PIXELS W GLACIERS AND WITH SNOW
-        mask = (SWE_D > 0.0) & (SWE_D <= Melting) & (IceThickness_WE > 0.0)
-        Outflow_ExcessMelt[mask] = SWE_D[mask] + SWE_W[mask]
-        Melting_g[mask] += (Melting[mask] - SWE_D[mask])
-        MeltingGCumWY[mask] += Melting_g[mask]
-        SWE_D[mask] = 0.0
-        SWE_W[mask] = 0.0
-        SWE[mask] = 0.0
-        Ice_flag[mask] = 0.0
-
-        mask = (SWE_D > 0.0) & (IceThickness_WE > 0.0)
-        SWE_D[mask] -= Melting[mask]
-        SWE_W[mask] += Melting[mask]
-        SWE[mask] = SWE_D[mask] + SWE_W[mask]
-        # --------------------------------------------------------------------------------------------------------------
-        # PIXELS W GLACIERS BUT NO SNOW
-        mask = (SWE_D == 0.0) & (IceThickness_WE > 0.0) & (Melting_g > 0.0) & (Ice_flag > 0.0)
-        MeltingGCumWY[mask] += Melting_g[mask]
-    else:
-        # PIXELS where Melt > SWE_D
-        mask_melt = (SWE_D > 0) & (SWE_D <= Melting)
-        Melting[mask_melt] = SWE_D[mask_melt]
-        Outflow_ExcessMelt[mask_melt] = SWE_D[mask_melt] + SWE_W[mask_melt]
-        SWE_D[mask_melt] = 0
-        SWE_W[mask_melt] = 0
-        SWE[mask_melt] = 0
-
-        mask_melt_1 = SWE_D > 0 & (SWE_D > Melting)
-        SWE_D[mask_melt_1] -= Melting[mask_melt_1]
-        SWE_W[mask_melt_1] += Melting[mask_melt_1]
-        SWE[mask_melt_1] = SWE_D[mask_melt_1] + SWE_W[mask_melt_1]
-        """
-    # ------------------------------------------------------------------------------------------------------------------
-    # Compute daily cumulated melting
-    mask = Melting > 0.0
-    MeltingDayCum[mask] += Melting[mask]
     # ------------------------------------------------------------------------------------------------------------------
     # Update height of dry snow layer (H_D)
     H_D = ((SWE_D / 1000) * RhoW) / Rho_D
@@ -305,12 +213,12 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
 
     # ------------------------------------------------------------------------------------------------------------------
 
-    delta_swe = np.round(SWE - output_vector[:, :,10], 2)
+    delta_swe = np.round(SWE - output_vector[:, 10], 2)
     delta_flux = np.round(Snowfall + Rainfall - outflow, 2)
     cond_balance = (delta_swe != delta_flux)
 
     # If mass balance check fails at 2 decimals AND at 1 decimal, flag error
-    delta_swe_1 = np.round(SWE - output_vector[:, :, 10], 1)
+    delta_swe_1 = np.round(SWE - output_vector[:, 10], 1)
     delta_flux_1 = np.round(Snowfall + Rainfall - outflow, 1)
     cond_balance_1 = (delta_swe_1 != delta_flux_1)
 
@@ -318,27 +226,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
         mass_balance = np.ones_like(SWE)  # or any variable with the shape you want
     else:
         mass_balance = np.zeros_like(SWE)
-    """ 
-    if IceMassBalance== 2 :
-
-        mask = SWE >0
-
-        IceThickness_WE[mask] = IceThickness_WE[mask]+ SWE[mask]
-        SWE = 0.0
-        SWE_D = 0.0
-        SWE_W = 0.0
-
-        # IceThickness_WE = GlacierDeltaH(dt, Rows, Cols, iRows_Pivot, IceThickness_WE, MeltingGCumWY, Mask, PivotTable, DEM, Glaciers_ID, AreaCell)
-
-        Melting_g_CumWY = 0
-
-    if IceMassBalance == 1 or IceMassBalance == 2:
-        # Conversion from mm of water equivalent to m of ice
-            ChangeThickness = IceThickness_WE/917 -Ice_thickness
-            Ice_thickness = IceThickness_WE/917
-    """
     # ------------------------------------------------------------------------------------------------------------------
-
     Time = Time.hour + Time.minute / 60
     Time = np.tile(Time, (P.shape))
     # ------------------------------------------------------------------------------------------------------------------
@@ -346,38 +234,36 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     state_vector_new = np.zeros(state_vector.shape)
     output_vector_new = np.zeros(output_vector.shape)
 
-    state_vector_new[:, :, 0] = SWE_W
-    state_vector_new[:, :, 1] = SWE_D
-    state_vector_new[:, :, 2] = Rho_D
-    state_vector_new[:, :, 3] = albedo
-    #state_vector_new[:, :, 4] = Ice_thickness
+    state_vector_new[ :,0] = SWE_W
+    state_vector_new[:,1] = SWE_D
+    state_vector_new[:,2] = Rho_D
+    state_vector_new[:,3] = albedo
+    #state_vector_new[:, 4] = Ice_thickness
     # ------------------------------------------------------------------------------------------------------------------
-    output_vector_new[:, :, 0] = Rainfall
-    output_vector_new[:, :, 1] = Snowfall
-    output_vector_new[:, :, 2] = Melting
-    output_vector_new[:, :, 3] = Refreezing
-    output_vector_new[:, :, 4] = outflow
-    output_vector_new[:, :, 5] = Sf_daily_cum
-    output_vector_new[:, :, 6] = Time
-    output_vector_new[:, :, 7] = mass_balance
-    output_vector_new[:, :, 8] = mrad
-    output_vector_new[:, :, 9] = mr
-    output_vector_new[:, :, 10] = SWE
-    output_vector_new[:, :, 11] = As
-    output_vector_new[:, :, 12] = H_D
-    output_vector_new[:, :, 13] = theta_w
-    output_vector_new[:, :, 14] = H_S
-    output_vector_new[:, :, 15] = Rho_s
-    output_vector_new[:, :, 16] = Melting_g
-
-    # sanity check
-
-    mask = output_vector_new[:, :, 10] < 0.01
-    state_vector_new[mask, :-1] = 0
-    output_vector_new[mask, 10:] = 0
-
-
+    output_vector_new[ :,0] = Rainfall
+    output_vector_new[:,1] = Snowfall
+    output_vector_new[:,2] = Melting
+    output_vector_new[:,3] = Refreezing
+    output_vector_new[:,4] = outflow
+    output_vector_new[:,5] = Sf_daily_cum
+    output_vector_new[:,6] = Time
+    output_vector_new[:,7] = mass_balance
+    output_vector_new[:,8] = mrad
+    output_vector_new[:,9] = mr
+    output_vector_new[:,10] = SWE
+    output_vector_new[:,11] = As
+    output_vector_new[:,12] = H_D
+    output_vector_new[:,13] = theta_w
+    output_vector_new[:,14] = H_S
+    output_vector_new[:,15] = Rho_s
+    output_vector_new[:,16] = Melting_g
+    # ------------------------------------------------------------------------------------------------------------------
+    # Sanity check
+    mask_sanity = output_vector[:, 10] < 0.01
+    state_vector[mask_sanity, :-1] = 0
+    output_vector[mask_sanity, 10:] = 0
 
     # ------------------------------------------------------------------------------------------------------------------
 
     return meteo, state_vector_new, output_vector_new, mass_balance
+

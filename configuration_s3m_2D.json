@@ -11,8 +11,9 @@
     }
   },
   "template": {
+      "source_file_datetime_generic": "%Y-%m-%d%H%M%S" ,
       "source_file_datetime_generic_year": "%Y" ,
-      "source_file_datetime_generic": "%Y%m%d%H%M",
+      "source_file_datetime": "%Y-%m-%d_%Y-%m-%d",
       "source_file_datetime_generic_daily": "%Y%m%d",
       "source_file_datetime_generic_w_seconds": "%Y%m%d%H%M%S",
       "source_folder_datetime_generic": "%Y/%m/%d/",
@@ -24,59 +25,69 @@
 
   "data": {
     "info_file": {
-      "input_path":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/Osservazioni/Output_daily_summaries_v2/",
-       "observation_file":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/df_dict.pkl",
+      "input_path":  "/home/idrologia/PhD_GiuliaBlandini/S3M_2D/outputs/output.nc",
+      "weights": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/weights.pkl",
+      "observation_vda":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/dict.pkl",
+      "dem" : "/home/idrologia/PhD_GiuliaBlandini/S3M_2D/inputs/dem/DEM_VDA.tif",
+      "svf": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/masked_svf.nc",
+      "slope":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/FILES/SLOPE_VDA_1km.tif",
+      "comparison_ol": 1,
+      "downscaled": 0,
+      "comparison_ol_meteo": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/meteo_2018-10-01_2019-09-30.nc",
+      "ncdf": 1,
+      "time_series_csnow":"/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/observations/time_series_csnow.pkl",
+       "obs_mask": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/obs_mask.pkl",
+      "tiff": 0,
       "resampling":0,
       "time_resolution": "1D",
       "unit_conversion":0,
-      "Snow_depth_con":0.01,
+      "Snow_depth_con":1,
       "swe_con": 1,
+       "method" : "nearest",
        "perturbations": {
         "per_Obs":0,
-         "N": 100,
-        "folder_pkl": "quantile_mapping/",
-        "file_pkl": "objs_torgnon.pkl",
+         "N": 5,
+        "folder_pkl":"/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/",
+        "file_pkl": "quantile_data_{source_file_datetime}.pkl",
         "interpolation_kind": "linear",
-        "positions": {
-          "R": 8,
-          "means" : 0,
-          "limits": 1},
-          "inflation_deflation":{
-              "prc_mm": 10,
-              "radiation": 1,
-              "temperature":0.5,
-              "rh":1,
+         "R": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_matrices_{source_file_datetime}.pkl",
+         "statistics": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_{source_file_datetime}.pkl",
+         "R_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_{source_file_datetime}.pkl",
+         "L_tilde" : "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/L_tilde.pkl",
+        "L0":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/L0.pkl",
+        "state_limits":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/state_limits.pkl",
+         "inflation_deflation":{
+              "prc_mm": 0.5,
+              "radiation": 0.5,
+              "temperature":0.3,
+              "rh":0.5,
               "T_10D_˚C":0.3,
               "T_1D_˚C": 0.3},
          "scale_mean_prec": 0,
          "pert_asymm_prec": 0,
          "c_asymm_prec": 1,
-         "L_tilde" : "L_tilde.pkl",
-        "L0": "L0.pkl",
-         "markov":1,
-        "state_limits": "/home/idrologia/share/PhD_GiuliaBlandini_dati/input/INPUT_FILTER/state_limits_torgnon.pkl",
         "pert_prec" : 1,
         "pert_rad" : 1,
         "pert_temp" : 1,
         "pert_rh" : 1,
-         "R_state": "R_state_reconstructed.pkl",
          "error_sigma_swe": 15,
          "error_sigma_snow_depth": 0.01
       },
       "different_assilimation": 0,
       "different_assilimation_time":0,
       "file_assimilation": "",
-
       "change_part": 0,
-
-
+      "Ice_flag": 0,
+      "old_run": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/S3M_201712312300.nc",
       "tags":{
-        "prc_tag":"Rain_SOMMA",
+        "prc_tag":"tp",
         "snow_depth_tag":"snow_depth_m",
-         "rad_tag": "IncRadiation_MEDIA",
-        "temperature_tag":"AirTemperature_MEDIA",
-         "rh_tag":"RelHumidity_MEDIA",
-         "swe_tag": "swe_mm"
+         "rad_tag": "SW",
+        "temperature_tag":"t",
+         "rh_tag": "RH",
+         "swe_tag": "swe_mm",
+         "specific_humidity_tag": "q",
+        "pressure_tag": "p"
       },
 
 
@@ -105,7 +116,8 @@
          "H_D_m":0,
         "theta_w": 0,
         "H_S_m": 0,
-        "RHO_S_kg/m3": 0
+        "RHO_S_kg/m3": 0,
+        "Melting_g_mm": 0
       },
 
       "state": {
@@ -116,44 +128,42 @@
       },
 
       "parameters": {
-        "alpha": 22,
+        "alpha_p": 22,
         "beta": -2.7,
         "gamma": -0.2,
-        "RhoSnowMax": 550,
+        "RhoSnowMax": 400,
         "RhoFreshSnowMax": 200,
         "RhoSnowMin": 67.9,
-        "RhoW": 997,
-        "Ttau": 1,
-        "mrad0": 1.125,
-        "mr0":1.1,
-        "dt": 86400,
-        "window_melting":3,
-        "window_albedo": 1,
-        "lat":45.83,
-        "lon":7.34,
+        "RhoW": 1000,
+        "Ttau": -1.4857,
+        "mrad0": 1.3277,
+        "mr0":2.418869e+00,
+        "dt": 3600,
+        "window_melting":24,
+        "window_albedo": 24,
         "coordinates_map": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/dem/vda.dem 1.txt",
-        "multiplicative_albedo": 1
+        "multiplicative_albedo": 1,
+        "IceMeltingCoeff": 1,
+        "IceMassBalance": 0,
+        "interpolated_parameters": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/interpolated_parameters.nc",
+        "RhoSnowavg": 400,
+        "OL": 1
       }
   },
 
       "output_file": {
-        "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/year_{source_file_datetime_generic_year}/",
+        "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/",
         "file_name_nc": "results_{source_file_datetime_generic}_.nc",
         "file_name": "results_{source_file_datetime_generic}_.csv",
         "file_name_plot_swe": "swe_plot_{source_file_datetime_generic}_.png",
         "file_name_plot_hs": "hs_plot_{source_file_datetime_generic}_.png",
-        "fig_name_1": "analysis_water_{source_file_datetime_generic}_.png",
-        "fig_name_2": "analysis_{source_file_datetime_generic}_.png",
-        "fig_name_3": "comparison_{source_file_datetime_generic}_.png",
-        "fig_name_4": "epsilon_{source_file_datetime_generic}.png",
-        "file_name_rmse": "rmse_{source_file_datetime_generic}_.txt",
-        "file_name_B" : "B_det_.pkl"
+        "folder_name_plots": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plots/"
       }
     },
 
   "log": {
-      "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/year_{source_file_datetime_generic_year}/",
-      "file_name": "logger_{source_file_datetime_generic_year}_s3m_punctual.txt",
+      "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/",
+      "file_name": "logger_trial_{source_file_datetime_generic}_s3m_2D.txt",
       "file_history": true
     },
 
@@ -168,63 +178,12 @@
   },
 
   "calibration": {
-   "folder_name": "",
+   "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/calibration/",
     "file_name":"readme_calibration.txt",
-    "file_name_2":"parameters_calibration.csv",
-    "fig_name":"calibration.png",
-    "input_df": "input_df.csv",
+    "fig_name":"calibration",
     "file_name_cal":"logger_calibration.txt",
-    "fig_name_error": "error_plot.png",
-    "fig_name_obj": "obj_func_plot.png",
-    "fig_name_sim": "sim_ensemble _plot.png",
-    "obj_values": "obj_values.npz",
-    "calibrate": 0,
-
-     "Labels_all" :{
-    "mrad":0,
-     "mr": 0,
-     "window_melting": 0
-},
-    "Labels_mr_window": {
-      "mr": 0,
-      "window_melting": 0
-    },
-
-    "Labels_mr": {
-      "mr": 0
-    },
-   "samp_strat": "lhs",
-   "distr_fun" : "st.uniform",
-   "N":300,
-
-    "xmin_all" :{
-    "mrad": 0.8,
-    "mr": 0.5,
-    "window_melting": 24
-  },
-  "xmax_all" : {
-    "mrad": 3,
-    "mr": 2.5,
-    "window_melting":240
-  },
-    "xmin_mr_window" : {
-    "mr": 0.5,
-    "window_melting": 24
-    },
-    "xmax_mr_window" : {
-    "mr": 2.5,
-    "window_melting":240
-    },
-    "xmin_mr" : {
-    "mr": 0.5
-    },
-    "xmax_mr" : {
-    "mr": 2.5
-    }
-  },
-    "check":{
-      "variable_1" : "H_S_m",
-      "variable_2" : "SWE_mm"
+    "tif_name": "sample.tif",
+    "calibrate":0
     }
 
 

@@ -1,117 +1,118 @@
+import math
 import numpy as np
 import pandas
-import rasterio
-import  scipy.special as sp
+# import pdb
 # -----------------------------------------------------
 # -----------------------------------------------------
 # Froidurot et. al 2014 PRECIPITATION-PHASE partitioning
+
 def PhasePart(P, alpha, beta, gamma, T_air, RH, change_part):
-        """
-        Vectorized computation of snowfall and rainfall.
-        Parameters:
-            P       : precipitation array
-            T_air   : air temperature array
-            RH      : relative humidity array
-            alpha, beta, gamma : coefficients for SepCoeff
-            change_part : 1 for simple threshold, else sigmoid separation
+    """
+    Vectorized computation of snowfall and rainfall.
+    Parameters:
+        P       : precipitation array
+        T_air   : air temperature array
+        RH      : relative humidity array
+        alpha, beta, gamma : coefficients for SepCoeff
+        change_part : 1 for simple threshold, else sigmoid separation
 
-        Returns:
-            Snowfall, Rainfall : arrays of the same shape as P
-        """
-        mask_p = P > 0
-        Snowfall = np.zeros_like(P, dtype=float)
-        Rainfall = np.zeros_like(P, dtype=float)
+    Returns:
+        Snowfall, Rainfall : arrays of the same shape as P
+    """
+    mask_p = P > 0
+    Snowfall = np.zeros_like(P, dtype=float)
+    Rainfall = np.zeros_like(P, dtype=float)
 
-        if change_part == 1:
-            # simple threshold
-            Snowfall= np.where(T_air <= 0.5, P, 0)
-            Rainfall= np.where(T_air > 0.5, P, 0)
+    if change_part == 1:
+        # simple threshold
+        Snowfall = np.where(T_air <= 0.5, P, 0)
+        Rainfall = np.where(T_air > 0.5, P, 0)
 
-        else:
-            # sigmoid separation
-            SepCoeff = 1 / (1 + np.exp(alpha + (beta * T_air[mask_p]) + (gamma * RH[mask_p])))
-            Snowfall[mask_p] = (1 - SepCoeff) * P[mask_p]
-            Rainfall[mask_p] = SepCoeff*P[mask_p]
+    else:
+        # sigmoid separation
+        SepCoeff = 1 / (1 + np.exp(alpha + (beta * T_air[mask_p]) + (gamma * RH[mask_p])))
+        Snowfall[mask_p] = (1 - SepCoeff) * P[mask_p]
+        Rainfall[mask_p] = SepCoeff * P[mask_p]
 
-        # apply minimum threshold
-        Snowfall[Snowfall < 0.01] = 0
-        Rainfall[Rainfall < 0.01] = 0
+    # apply minimum threshold
+    Snowfall[Snowfall < 0.01] = 0
+    Rainfall[Rainfall < 0.01] = 0
 
-        return Snowfall, Rainfall
-
+    return Snowfall, Rainfall
 # -----------------------------------------------------
 # -----------------------------------------------------
+
 
 def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vector, SWE_D, Snowfall, T_air):
-        """
-        Vectorized computation of dry-snow density and height.
+    """
+    Vectorized computation of dry-snow density and height.
 
-        Parameters:
-            SWE_D      : array of SWE (mm)
-            Snowfall   : array of snowfall (mm)
-            T_air      : array of air temperatures (°C)
-            state_vector : array with at least 3 elements, state_vector[2] = Rho_D
-            output_vector: array with at least 16 elements, output_vector[15] = RhoS0
-            dt         : timestep in seconds
-            Rho_D_min, Rho_D_max, Rho_S_max, RhoW : scalars
+    Parameters:
+        SWE_D      : array of SWE (mm)
+        Snowfall   : array of snowfall (mm)
+        T_air      : array of air temperatures (°C)
+        state_vector : array with at least 3 elements, state_vector[2] = Rho_D
+        output_vector: array with at least 16 elements, output_vector[15] = RhoS0
+        dt         : timestep in seconds
+        Rho_D_min, Rho_D_max, Rho_S_max, RhoW : scalars
 
-        Returns:
-            Rho_D, RhoS0, SnowTemp, H_D : arrays of same shape as SWE_D
-        """
-        Rho_D =state_vector[:, :, 2]
-        RhoS0 = output_vector[:, :, 15]
-        H_D = output_vector[:, :, 12]
-        SnowTemp = np.zeros_like(SWE_D)
+    Returns:
+        Rho_D, RhoS0, SnowTemp, H_D : arrays of same shape as SWE_D
+    """
+    Rho_D = state_vector[:,  2]
+    RhoS0 = output_vector[:, 15]
+    H_D = output_vector[:, 12]
+    SnowTemp = np.zeros_like(SWE_D)
 
+    # Fresh snow density
+    mask_new_snow = Snowfall > 0
+    RhoS0[mask_new_snow] = 67.9 + 51.3 * np.exp(T_air[mask_new_snow] / 2.6)
+    RhoS0 = np.clip(RhoS0, Rho_D_min, Rho_S_max)
 
-        # Fresh snow density
-        mask_new_snow = Snowfall > 0
-        RhoS0[mask_new_snow] = 67.9 + 51.3 * np.exp(T_air[mask_new_snow] / 2.6)
-        RhoS0 = np.clip(RhoS0, Rho_D_min, Rho_S_max)
+    RhoS0[Snowfall == 0] = 0
 
-        RhoS0[Snowfall == 0] = 0
+    # Dry-snow density update
+    mask_cond1 = (SWE_D - Snowfall > 1) & (Snowfall > 1) & (Rho_D > Rho_D_min)
+    Rho_D[mask_cond1] = SWE_D[mask_cond1] / (
+            (Snowfall[mask_cond1] / RhoS0[mask_cond1]) + (
+            (SWE_D[mask_cond1] - Snowfall[mask_cond1]) / Rho_D[mask_cond1])
+    )
 
-        # Dry-snow density update
-        mask_cond1 = (SWE_D - Snowfall > 1) & (Snowfall > 1) & (Rho_D > Rho_D_min)
-        Rho_D[mask_cond1] = SWE_D[mask_cond1] / (
-                (Snowfall[mask_cond1] / RhoS0[mask_cond1]) + (
-                    (SWE_D[mask_cond1] - Snowfall[mask_cond1]) / Rho_D[mask_cond1])
-        )
+    mask_cond2 = (SWE_D - Snowfall <= 1) & (Snowfall > 0)
 
-        mask_cond2 = (SWE_D - Snowfall <= 1) & (Snowfall > 0)
+    Rho_D[mask_cond2] = RhoS0[mask_cond2]
 
-        Rho_D[mask_cond2] = RhoS0[mask_cond2]
+    # enforce limits
+    Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)
 
-        # enforce limits
-        Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)
+    # compute snow height
+    mask_cond3 = Rho_D > 0
+    H_D[mask_cond3] = ((SWE_D[mask_cond3] / 1000) * RhoW) / Rho_D[mask_cond3]
+    mask_not_cond3 = Rho_D <= 0
+    H_D[mask_not_cond3] = 0
 
-        # compute snow height
-        mask_cond3 = Rho_D > 0
-        H_D[mask_cond3] = ((SWE_D[mask_cond3] / 1000) * RhoW) / Rho_D[mask_cond3]
-        mask_not_cond3 = Rho_D <= 0
-        H_D[mask_not_cond3] = 0
+    # snow temperature
+    mask_cond4 = T_air >= 0
+    SnowTemp[mask_cond4] = 0
+    mask_not_cond4 = T_air < 0
+    SnowTemp[mask_not_cond4] = 0.5 * T_air[mask_not_cond4]
 
-        # snow temperature
-        mask_cond4 = T_air >= 0
-        SnowTemp[mask_cond4] = 0
-        mask_not_cond4 = T_air < 0
-        SnowTemp[mask_not_cond4] = 0.5 * T_air[mask_not_cond4]
+    # dry-snow compaction
+    mask_snow = SWE_D > 0
+    Rho_D[mask_snow] = Rho_D[mask_snow] + 0.66 * (dt / 3600) * 0.001 * H_D[mask_snow] * (Rho_D[mask_snow] ** 2) * \
+                       np.exp(0.08 * SnowTemp[mask_snow] - 0.021 * Rho_D[mask_snow])
 
-        # dry-snow compaction
-        mask_snow = SWE_D > 0
-        Rho_D[mask_snow] = Rho_D[mask_snow]+ 0.66 * (dt / 3600) * 0.001 * H_D[mask_snow] * (Rho_D[mask_snow] ** 2) * \
-                            np.exp(0.08 * SnowTemp[mask_snow] - 0.021 * Rho_D[mask_snow])
+    # enforce limits again
+    Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)
 
-        # enforce limits again
-        Rho_D = np.clip(Rho_D, Rho_D_min, Rho_D_max)
+    # recompute snow height after compaction
+    mask_cond5 = Rho_D > 0
+    mask_not_cond5 = Rho_D <= 0
+    H_D[mask_cond5] = ((SWE_D[mask_cond5] / 1000) * RhoW) / Rho_D[mask_cond5]
+    H_D[mask_not_cond5] = 0
 
-        # recompute snow height after compaction
-        mask_cond5 = Rho_D > 0
-        mask_not_cond5 = Rho_D <= 0
-        H_D[mask_cond5] = ((SWE_D [mask_cond5] / 1000) * RhoW )/ Rho_D[mask_cond5]
-        H_D[mask_not_cond5] = 0
+    return Rho_D, RhoS0, SnowTemp, H_D
 
-        return Rho_D, RhoS0, SnowTemp, H_D
 
 # -----------------------------------------------------
 # -----------------------------------------------------
@@ -199,6 +200,7 @@ def Hydraulics(Rho_D, RhoW, SWE_D, SWE_W, H_D, dt):
 
     return Outflow_K, H_S
 
+
 # -----------------------------------------------------
 # -----------------------------------------------------
 
@@ -218,7 +220,7 @@ def refreezing(T_air, T_melting, SWE_W, mr0, cm, Ttau):
     - R         : 2D array of refreezing amount (mm/h)
     """
     # Step 1: Compute mr
-    mr = 0.598862 * np.arctan(0.27439 * T_melting - 0.5988) - 0.598862 * (np.pi/ 2) + mr0
+    mr = 0.598862 * np.arctan(0.27439 * T_melting - 0.5988) - 0.598862 * (np.pi / 2) + mr0
 
     # mr cannot be negative
     mr = np.where(mr < 0, 0, mr)
@@ -227,10 +229,12 @@ def refreezing(T_air, T_melting, SWE_W, mr0, cm, Ttau):
     R = np.where((T_air < Ttau) & (SWE_W > 0), -cm * mr * (T_air - Ttau), 0)
 
     return R
+
+
 # -----------------------------------------------------
 # -----------------------------------------------------
 
-def melting(ref_time,mrad0, mr0, T_air, T_melting, T_albedo, Ttau, Radiation, RhoW, dt, cm,
+def melting(ref_time, mrad0, mr0, T_air, T_melting, T_albedo, Ttau, Radiation, RhoW, dt, cm,
             SWE_D, albedo, As, SWE, Sf_daily_cum,
             multiplicative_term, Ice_flag, Ice_thickness, IceMeltingCoeff):
     """
@@ -251,11 +255,11 @@ def melting(ref_time,mrad0, mr0, T_air, T_melting, T_albedo, Ttau, Radiation, Rh
     # === Update snow age and albedo ===
     As, Sf_daily_cum = snow_age(As, ref_time, SWE, Sf_daily_cum)
 
-    albedo = alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_flag)
+    albedo = alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_flag)
 
     # === Melt coefficients (temperature & radiation based) ===
-    mrad =0.49338 * np.arctan(0.27439 * T_melting - 0.5988) - 0.49338 * (np.pi / 2) + mrad0
-    mr = 0.598862 * np.arctan(0.27439 * T_melting - 0.5988) - 0.598862 * (np.pi/ 2) + mr0
+    mrad = 0.49338 * np.arctan(0.27439 * T_melting - 0.5988) - 0.49338 * (np.pi / 2) + mrad0
+    mr = 0.598862 * np.arctan(0.27439 * T_melting - 0.5988) - 0.598862 * (np.pi / 2) + mr0
 
     # Enforce non-negativite
     mrad = np.maximum(mrad, 0)
@@ -322,7 +326,6 @@ def snow_age(As, ref_time, SWE, Sf_daily_cum):
     # Ensure ref_time is a pandas.Timestamp
 
     if ref_time.hour == 23:
-
         mask_up = Sf_daily_cum <= 3
         As[mask_up] = As[mask_up] + 1
 
@@ -333,9 +336,8 @@ def snow_age(As, ref_time, SWE, Sf_daily_cum):
         # reset Sf every day
         Sf_daily_cum = np.zeros_like(SWE)
 
+    return As, Sf_daily_cum
 
-
-    return As,  Sf_daily_cum
 
 # -----------------------------------------------------
 # ----------------------------------------------------
@@ -343,7 +345,7 @@ def snow_age(As, ref_time, SWE, Sf_daily_cum):
 # compute albedo Laramie and Schaake 1972
 # compute a value of albedo based on daily mean temperature
 
-def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_flag):
+def alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_flag):
     """
     Update albedo based on snow age and daily mean temperature.
 
@@ -369,7 +371,7 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_fl
 
         albedo_old = albedo.copy()
 
-            # --- WET condition (Ta > 0°C) ---
+        # --- WET condition (Ta > 0°C) ---
         wet_mask = T_albedo > 0
 
         if np.any(wet_mask):
@@ -387,17 +389,18 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_fl
             albedo[dry_mask] = albedo_pivot_dry[next_idx[dry_mask]]
 
         # --- Boundary conditions ---
-        albedo= np.clip(albedo, 0.5, 0.95)
+        albedo = np.clip(albedo, 0.5, 0.95)
 
         # --- New snow condition (Age = 0) ---
-        new_snow_mask = As== 0
+        new_snow_mask = As == 0
         albedo[new_snow_mask] = 0.95
 
     return albedo
 
+
 """
 def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_flag):
-   
+
         Update albedo based on snow age and daily mean temperature.
 
         Parameters:
@@ -409,7 +412,7 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_fl
 
         Returns:
         - albedo_new         : 2D array of updated albedo
-        
+
     # Ensure ref_time is a pandas.Timestamp
     if isinstance(ref_time, np.ndarray):
         ref_time = pandas.to_datetime(ref_time)
@@ -428,10 +431,13 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_fl
 
     return  albedo
 """
+
+
 # -----------------------------------------------------
 # -----------------------------------------------------
 
-def Sterrain(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_flag,SWE_D,SWout,slope,sky_view_factor) :
+def Sterrain(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_flag, SWE_D, SWout, slope,
+             sky_view_factor):
     """
     Compute terrain-reflected shortwave radiation and update SWout.
 
@@ -448,9 +454,9 @@ def Sterrain(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,I
     # Flatten the array
     slp_flattened = slp.values.flatten()  # or use slp.ravel()
     svf = sky_view_factor['svf'].values  # Assuming sky_view_factor is a DataFrame
-    svf= svf.flatten()
+    svf = svf.flatten()
 
-    albedo_new =alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_flag)
+    albedo_new = alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_flag)
 
     # Eq. 9b from Dozier and Frew (1990)
     Ct = 0.5 * (1 + np.cos(slp_flattened)) - svf.flatten()
@@ -462,6 +468,7 @@ def Sterrain(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,I
     SWout += Sterrain
 
     return SWout
+
 
 """ 
 def GlacierDeltaH(dt, Rows, Cols, iRows_Pivot, IceThickness_WE, MeltingGCumWY, Mask, PivotTable, DEM, Glaciers_ID, AreaCell):
@@ -522,4 +529,3 @@ def GlacierDeltaH(dt, Rows, Cols, iRows_Pivot, IceThickness_WE, MeltingGCumWY, M
 
 # -----------------------------------------------------
 # -----------------------------------------------------
-
