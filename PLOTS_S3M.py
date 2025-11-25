@@ -7,6 +7,9 @@ import xarray as xr
 import matplotlib.pyplot as plt
 import rioxarray
 import logging
+from lib_utilis_data_proc import get_args
+from lib_data_io_json import read_file_settings
+
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -57,7 +60,7 @@ def plot_map(data_2d, dem, title, colorbar_label, save_file, cmap):
     log.info(f"✅ Map saved: {save_file}")
     return None
 
-def plot_time_series(obs_df, modeled_snow, modeled_swe, lat, lon, start, end, save_file):
+def plot_time_series(obs_df, modeled_snow, modeled_swe, lat, lon,  save_file):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
 
     try:
@@ -333,8 +336,7 @@ def plot_maps_s3m(ds, dem, output_dir, idx,cmap='BuPu'):
     plt.close()
     log.info(f"✅ Combined map saved: {save_file}")
 
-
-if __name__ == "__main__":
+def comparison_run():
     # ---------------------------------------------------------------------------
     dem_file = '/home/idrologia/PhD_GiuliaBlandini/S3M_2D/inputs/dem/DEM_VDA.tif'
     dem = rioxarray.open_rasterio(dem_file, masked=True).squeeze()
@@ -588,3 +590,161 @@ if __name__ == "__main__":
     plt.savefig(save_path, dpi=300)
     plt.close()
     log.info(f"✅ Saved Snow Age and Snowfall comparison plot to {save_path}")
+    return None
+
+
+def plot_time_series_open_loop_vda():
+    file_output = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/output_data_2018-10-01_2019-09-30.nc"
+    vda_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/dict.pkl"
+    save_path = Path("/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plots/open_loop/")
+    # open nc
+    ds = xr.open_dataset(file_output)
+    ds = ds[["Rainfall_mm", "Snowfall_mm", "Melting_mm", "Refreezing_mm",
+             "Outflow_mm", "Sf_daily_cum", "Snow_Age", "H_S_m", 'SWE_mm']]
+    snow = ds['H_S_m']
+    swe = ds['SWE_mm']
+    time_index = pd.to_datetime(ds.time.values)
+    start = "2018-10-01"
+    end = "2019-09-30"
+
+    # Load VDA station observations
+    rmse_list, std_list = [], []
+
+    with open(vda_path, 'rb') as f:
+        vda_st = pickle.load(f)
+
+    print(vda_st)
+
+    for (lat, lon), df in vda_st.items():
+        log.info(f"📡 VDA Site: lon = {lon}, lat = {lat}")
+        df = df.copy()
+        df['time'] = pd.to_datetime(df['time'], unit='s')
+        df.set_index('time', inplace=True)
+        df = df[~df.index.duplicated()].reindex(time_index, method='nearest')
+
+        try:
+            snow_sel = snow.sel(lat=lat, lon=lon,method='nearest')
+            swe_sel = swe.sel( lat=lat, lon=lon, method='nearest')
+        except Exception as e:
+            log.warning(f"⚠️ Could not locate grid point for VDA site ({lon}, {lat}): {e}")
+            continue
+
+        if snow_sel.isnull().all():
+            continue
+
+        fig_path = save_path / f"VDA_time_series_LAT{lat:.4f}_LON{lon:.4f}_{start}_{end}.png"
+        plot_time_series(df, snow_sel, swe_sel, lat, lon,fig_path)
+        obs = df['Snow_depth_cm'].values / 100
+        mod = snow_sel.values
+
+        rmse = np.sqrt(np.mean((obs - mod) ** 2))
+        std = np.std(mod)
+
+        if rmse < 100 and std < 100:
+            rmse_list.append(rmse)
+            std_list.append(std)
+
+    if rmse_list:
+        log.info(f"\n📊 Mean RMSE Snow Depth VDA: {np.mean(rmse_list):.3f} m")
+        log.info(f"📊 Mean STD  Snow Depth VDA: {np.mean(std_list):.3f} m")
+
+def plot_meteo_ensemble(meteo_ensemble, Time, output_folder,meteo_original):
+    """
+    Plot the time series of the meteorological ensemble for the first observed point.
+    """
+    num_vars = meteo_ensemble.shape[2]
+    num_ensemble = meteo_ensemble.shape[3]
+    list_titles = [ 'Temperature','Precipitation', 'Relative Humidity',  'Radiation','T_10D', 'T_1D']
+    plt.figure(figsize=(20, 12))
+    colorors = plt.cm.viridis(np.linspace(0, 1, num_ensemble))
+
+    for i in range(num_vars):
+        plt.subplot(2, 3, i + 1)
+        for n in range(num_ensemble):
+            plt.plot(Time, meteo_ensemble[:, 0, i, n], color= colorors[n],  alpha=0.5)
+
+        plt.plot(Time, meteo_original[:,0, 0, i], color='red', label='Original', linewidth=1)
+
+        plt.title(list_titles[i], fontsize=15)
+        plt.xlabel('Time', fontsize=12)
+        plt.ylabel('Value', fontsize=12)
+        plt.grid()
+        plt.legend()
+        # --- Styling ---
+    plt.suptitle('Meteorological Ensemble Time Series', fontsize=20)
+    plt.tight_layout()
+    # Save the figure
+    output_path = os.path.join(output_folder, 'meteo_ensemble_time_series.png')
+    plt.savefig(output_path)
+    plt.close()
+    print(f"Figure saved to {output_path}")
+
+def plot_ensemble(state_matrix_ensemble,state_matrix_prior, state_matrix, data_settings, start, end, Time,
+                          output_matrix_ensemble, output_matrix, output_matrix_prior,obs):
+
+    for i in range(state_matrix.shape[1]):
+
+        # Plot state ensemble and output ensemble
+        colors = plt.cm.viridis(np.linspace(0, 1, state_matrix_ensemble.shape[3]))
+        fieldnames_state = ["SWE_w", "SWE_d", "rho_d", "albedo"]
+
+        plt.figure(figsize=(20, 12))
+        for p in range(state_matrix_ensemble.shape[2]):
+            plt.subplot(3, 2, p + 1)
+            for q in range(state_matrix_ensemble.shape[3]):  # Ensure q is within bounds
+                plt.plot(Time, state_matrix_ensemble[1:, i, p, q], color='lightgrey', linewidth=1, linestyle="-", alpha=0.5,
+                         label=f'Ensemble {q + 1}' if p == 0 else "")
+            plt.plot(Time, state_matrix_prior[1:, i, i, p], color='black', linestyle='-', linewidth=2, label='Deterministic')
+            plt.plot (Time, state_matrix[1:, i, i, p], color='red', linestyle='-', linewidth=2, label='Posterior mean')
+            plt.title(fieldnames_state[p], fontsize=15)
+            plt.xlabel('Time', fontsize=12)
+            plt.ylabel('Value', fontsize=12)
+            plt.grid()
+            plt.legend()
+        plt.tight_layout()
+        plt.savefig(os.path.join(data_settings['data']['output_file']['folder_name'],
+                                 f'state_ensemble_timeseries_{start}_{end}.png'))
+        plt.close()
+
+        fieldnames_output = ["SWE_mm", "H_S_m"]
+        # now do the same for swe and snow depth . you find it in the position 10 and 14  of output matrix and output vector and output matrix ensemble
+        # Create a single figure with two subplots for SWE and Snow Depth
+        fig, axes = plt.subplots(2, 1, figsize=(12, 12), constrained_layout=True)
+
+        # Plot SWE in the first subplot
+        for q in range(output_matrix_ensemble.shape[3]):  # Ensure q is within bounds
+            axes[0].plot(Time, output_matrix_ensemble[1:, i, 10, q], color='lightgreen', linewidth=1)
+
+        axes[0].plot(Time, output_matrix[1:, i, i, 10], color='red', linestyle='--', linewidth=0.5,
+                     label='Posterior mean')
+        axes[0].plot(Time, output_matrix_prior[1:, i, i, 0], color='black', linestyle='--', linewidth=1,
+                     label='Deterministic')
+        axes[0].set_title(fieldnames_output[0], fontsize=15)
+        axes[0].set_xlabel('Time', fontsize=12)
+        axes[0].set_ylabel('Value', fontsize=12)
+        axes[0].grid()
+        axes[0].legend()
+
+        # Plot Snow Depth in the second subplot
+        for q in range(output_matrix_ensemble.shape[3]):  # Ensure q is within bounds
+            axes[1].plot(Time, output_matrix_ensemble[1:, i, 14, q], color='lightgreen', linewidth=1)
+        axes[1].plot(Time, output_matrix[1:, i, i, 14], color='red', linestyle='-', linewidth=2, label='Posterior mean')
+        axes[1].plot(Time, output_matrix_prior[1:, i, i, 1], color='black', linestyle='--', linewidth=1,
+                     label='Deterministic')
+        axes[1].plot(Time, obs[:,i], color='blue', linestyle='-', linewidth=2, label='Observations')
+        axes[1].set_title(fieldnames_output[1], fontsize=15)
+        axes[1].set_xlabel('Time', fontsize=12)
+        axes[1].set_ylabel('Value', fontsize=12)
+        axes[1].grid()
+        axes[1].legend()
+
+        # Save the combined figure
+        plt.savefig(os.path.join(data_settings['data']['output_file']['folder_name'],
+                                 f'output_ensemble_combined_timeseries_{i}_{start}_{end}.png'))
+        plt.close()
+    return
+
+
+if __name__ == "__main__":
+    None
+

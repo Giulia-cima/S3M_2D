@@ -60,57 +60,12 @@ from lib_data_io_json import read_file_settings
 from S3M_2D_physics import S3M_2D_physics
 from lib_utilis_data_proc import get_args, rmse, read_path, save_raster
 from bayes_opt import BayesianOptimization
-from PLOTS_S3M import process_and_plot_snow_data, plot_meteo_maps, plot_map
-from S3M_2D_assimilation import perturb_meteo_state, enkf_assimilation_step
+from PLOTS_S3M import process_and_plot_snow_data, plot_ensemble, plot_meteo_ensemble
+from S3M_2D_assimilation import perturb_meteo_state, enkf_assimilation_step, pre_perturbation_val
 from joblib import Parallel, delayed
 from S3M_1D_physics import S3M_1D_physics
 from interpolation_algorithm import interpolate_correction
 import matplotlib.pyplot as plt
-
-
-
-def plot_meteo_ensemble(meteo_ensemble, meteo_original, Time, output_folder, variable_names):
-    """
-    Plot the time series of the meteorological ensemble for the first observed point.
-
-    Parameters:
-        meteo_ensemble (np.ndarray): Meteorological ensemble, shape (time, variables, ensemble_members).
-        meteo_original (np.ndarray): Original meteorological data, shape (time, variables).
-        Time (list): List of time steps.
-        output_folder (str): Path to the output folder.
-        variable_names (list): List of variable names for the meteorological data.
-    """
-    num_vars = meteo_ensemble.shape[1]
-    num_ensemble = meteo_ensemble.shape[2]
-    colors = plt.cm.viridis(np.linspace(0, 1, num_ensemble))
-
-    fig, axes = plt.subplots(num_vars, 1, figsize=(10, 15), constrained_layout=True)
-
-    for i in range(num_vars):
-        ax = axes[i]
-        # Plot the original data
-        ax.plot(Time, meteo_original[:, i], label='Original', color='black', linewidth=2)
-
-        # Plot each ensemble member
-        for n in range(num_ensemble):
-            ax.plot(Time, meteo_ensemble[:, i, n], color=colors[n], alpha=0.5, linewidth=0.8)
-
-        # Add labels and title
-        ax.set_title(f"{variable_names[i]} Time Series")
-        ax.set_xlabel('Time')
-        ax.set_ylabel(variable_names[i])
-        ax.grid(True)
-        ax.legend(['Original', 'Ensemble Members'], loc='upper right')
-
-    # Save the figure
-    output_path = os.path.join(output_folder, 'meteo_ensemble_time_series.png')
-    plt.savefig(output_path)
-    plt.close(fig)
-    print(f"Figure saved to {output_path}")
-
-
-# ----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-# -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 def compute_relative_humidity(temp , qair, pressure):
@@ -175,6 +130,7 @@ def optimize_for_key(key,values,start,end):
 
     """ Perform Bayesian optimization for a specific (lat, lon) key """
 
+
     lon,lat = key
     log_stream.info(f"Latitude: {lat}, Longitude: {lon}")
 
@@ -210,6 +166,7 @@ def process_ensemble_member(n, i, meteo_ensemble, state_matrix_ensemble, output_
     state_matrix_n = state_matrix_ensemble[ :, :, n]
     output_matrix_n = output_matrix_ensemble[ :, :, n]
 
+
     meteo_n, state_matrix_n, output_matrix_n, mass_balance = S3M_1D_physics(
         meteo_n,
         parameters,
@@ -225,6 +182,7 @@ def process_ensemble_member(n, i, meteo_ensemble, state_matrix_ensemble, output_
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
 
 
 def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_input, output_input):
@@ -247,11 +205,11 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
     log_stream = logging.getLogger(logger_name)
     # ------------------------------------------------------------------------------------------------------------------
     try :
-        start_datetime = datetime.strptime(start, "%Y-%m-%d")
-        end_datetime = datetime.strptime(end, "%Y-%m-%d")
+        start_datetime = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
+        end_datetime = datetime.strptime(end, "%Y-%m-%d %H:%M:%S")
     except ValueError:
-        start_datetime = datetime.strptime(alg_time_start, "%Y-%m-%d")
-        end_datetime = datetime.strptime(alg_time_end, "%Y-%m-%d")
+        start_datetime = datetime.strptime(alg_time_start, "%Y-%m-%d %H:%M:%S")
+        end_datetime = datetime.strptime(alg_time_end, "%Y-%m-%d %H:%M:%S")
 
     start_year = start_datetime.year
     end_year = end_datetime.year
@@ -269,9 +227,8 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
     # ------------------------------------------------------------------------------------------------------------------
     # upload files
     comparison_ol_meteo = data_settings['data']['info_file']['comparison_ol_meteo']
-    #obs = data_settings['data']['info_file']["time_series_csnow"]
+    obs = data_settings['data']['info_file']["time_series_obs"]
     obs_mask = data_settings['data']['info_file']["obs_mask"]
-    df_dict = pandas.read_pickle(data_settings["data"]["info_file"]["observation_vda"])
     dem = data_settings['data']["info_file"]["dem"]
     input_path = data_settings['data']['info_file']['input_path']
     w = pandas.read_pickle(data_settings['data']['info_file']['weights'])
@@ -302,6 +259,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
     ny, nx = dem_da.shape
     y_dem =dem_da["y"].values
     x_dem =dem_da["x"].values
+
     yy_coarse, xx_coarse = np.meshgrid(y_dem, x_dem, indexing='ij')  # 'ij' keeps shape as (ny, nx)
     multi_index_coarse = pandas.MultiIndex.from_arrays(
         [yy_coarse.ravel(), xx_coarse.ravel()],
@@ -372,8 +330,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         pert_temp = data_settings['data']['info_file']["perturbations"]["pert_temp"]
         pert_rh = data_settings['data']['info_file']["perturbations"]["pert_rh"]
         inflation_factor = 1
-
-
         # --------------------------------------------------------------------------------------------------------------
         # Define error covariance matrices
         sigma_err_swe = data_settings['data']['info_file']["perturbations"]["error_sigma_swe"]
@@ -390,22 +346,63 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             ds = xr.open_dataset(comparison_ol_meteo)
             meteo_ds = ds[["AirTemperature", "IncRadiation", "Rain", "RelHumidity"]]
             # create a  time resolution from start to end with a frequency of 1 hour until the 23:00 of the end day
-            Time = pandas.date_range(start=start_datetime, end= end_datetime + timedelta(hours=23), freq='h')
-            # assign the time to meteo_ds as coordinate
-            meteo_ds = meteo_ds.assign_coords(time=Time)
-            meteo_ds = meteo_ds.sel(time=slice(start_datetime, end_datetime + timedelta(hours=23)))
+            Time = pandas.date_range(start=start_datetime, end= end_datetime , freq='h')
+            meteo_ds = meteo_ds.sel(time=slice(start_datetime, end_datetime))
+            nx_meteo, ny_meteo = len(meteo_ds.lon), len(meteo_ds.lat)
+            # if the meteo grid is different from the dem grid , update nx and ny
+            if nx_meteo != nx or ny_meteo != ny:
+                Latitudes_1d = np.unique(meteo_ds.lat)
+                Longitudes_1d = np.unique(meteo_ds.lon)
+
+                AirTemperature_3D = np.repeat(
+                    meteo_ds['AirTemperature'].values[:, :, np.newaxis],  # shape (time, 43, 1)
+                    43, axis=2
+                )  # now shape is (8760, 43, 43)
+
+                Rain_3D = np.repeat(
+                    meteo_ds ['Rain'].values[:, :, np.newaxis],  # shape (time, 43, 1)
+                    43, axis=2
+                )  # now shape is (8760, 43, 43)
+
+                IncRadiation_3D = np.repeat(
+                    meteo_ds['IncRadiation'].values[:, :, np.newaxis],  # shape (time, 43, 1)
+                    43, axis=2
+                )  # now shape is (8760, 43, 43)
+                RelHumidity_3D = np.repeat(
+                    meteo_ds['RelHumidity'].values[:, :, np.newaxis],  # shape (time, 43, 1)
+                    43, axis=2
+                )  # now shape is (8760, 43, 43)
+
+                # Build the new dataset
+                meteo_ds = xr.Dataset(
+                    coords={
+                        "time": meteo_ds .time,
+                        "Latitude": Latitudes_1d,
+                        "Longitude": Longitudes_1d
+                    },
+                    data_vars={
+                        "AirTemperature": (("time", "Latitude", "Longitude"), AirTemperature_3D),
+                        "Rain": (("time", "Latitude", "Longitude"), Rain_3D),
+                        "IncRadiation": (("time", "Latitude", "Longitude"), IncRadiation_3D),
+                        "RelHumidity": (("time", "Latitude", "Longitude"), RelHumidity_3D)
+                    } )
+                nx = nx_meteo
+                ny = ny_meteo
+                lat_dem = Latitudes_1d
+                lon_dem = Longitudes_1d
+
             ds.close()
             gc.collect()
             # --------------------------------------------------------------------------------------------------
             if cal == 1:
                 meteo_ds = meteo_ds.sel(y=lat, x=lon,method='nearest')
             # ------------------------------------------------------------------------------------------------------------------
-            nt = len(Time)
+            nt = len(Time) +1  # +1 to include the initial condition
             state_backup = np.zeros((ny, nx,4), dtype=np.float32)
             output_backup = np.zeros((ny, nx,17), dtype=np.float32)
             state_matrix = np.zeros((nt,ny,nx,4), dtype=np.float32)
             output_matrix = np.zeros(( nt, ny,nx, 17), dtype=np.float32)
-            meteo = np.zeros((nt,ny,nx,  6), dtype=np.float32)
+            meteo = np.zeros(((nt-1),ny,nx,  6), dtype=np.float32)
             #------------------------------------------------------------------------------------------------------------------
             if state_input and output_input is not None:
                 state_input = state_input.to_array()
@@ -414,11 +411,13 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                 for q in range(0, 4):
                     state_backup[ :, :, q] = state_input[q, :, :].values
 
+
                 for p in range(0, 5):
                     output_backup[ :, :, p] = output_input[p, :, :].values
 
                 output_backup[ :, :, 10] = output_input[6, :, :].values
                 output_backup[:, :, 11] = output_input[7, :, :].values
+
                 output_backup[:, :, 12] = ((state_input[1, :, :].values / 1000) * parameters["RhoW"]) / state_input[2, :,:].values
                 output_backup[ :, :, 13] = output_input[8, :, :].values
                 output_backup[:, :, 14] = output_input[9, :, :].values
@@ -426,18 +425,24 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             else:
                 state_matrix[0, :, :, :] = state_vector
                 output_matrix[0, :, :, :] = output_vector
-
             print(f"Open data in {time.time() - t0:.2f} seconds")
 
             meteo[:, :, :, 0] = meteo_ds["AirTemperature"]
             meteo[:, :, :, 1] = meteo_ds["Rain"]
+
+            # set as limit 0 the negative precipitation values
+            meteo[:, :, :, 1] = np.where(meteo[:, :, :, 1] < 0, 0, meteo[:, :, :, 1])
             meteo[:, :, :, 2] = meteo_ds["RelHumidity"]
+            # BOUND  BETWEEN 0 AND 100 %
+            meteo[:, :, :, 2] = np.where(meteo[:, :, :, 2] < 0, 0, meteo[:, :, :, 2])
+            # #remove rel humidity values greater than 100%
+            meteo[:, :, :, 2] = np.where(meteo[:, :, :, 2] > 100, 100, meteo[:, :, :, 2])
             meteo[:, :, :, 3] = meteo_ds["IncRadiation"]
             meteo[:, :, :, 4] = meteo_ds["AirTemperature"].rolling(time=24, min_periods=1).mean()
             meteo[:, :, :, 5] = meteo_ds["AirTemperature"].rolling(time=24, min_periods=1).mean()
             gc.collect()
             # ------------------------------------------------------------------------------------------------------------------
-            if data_assimilation == 0:
+            if data_assimilation == 0 :
                     # save meteo as a netcdf file for checking
                     meteo_output = xr.Dataset(
                         {
@@ -481,7 +486,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                     # Save the dataset to a NetCDF file
                     meteo_output.to_netcdf(meteo_path)
                     print(f"Meteo matrix built in {time.time() - t0:.2f} seconds")
-
             # --------------------------------------------------------------------------------------------------------------------------
             if data_assimilation == 1 and cal == 0:
                 # open pickle file with obs_mask
@@ -491,19 +495,45 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                 lon = list(xs)
                 lat_point = lat_dem[list(ys)]
                 lon_point = lon_dem[list(xs)]
-                n_obs = lat_point.shape[1]
+                n_obs = len(lat_point)
                 state_matrix_ensemble = np.zeros((nt, n_obs, 4, N), dtype=np.float32)  # 4 state variables
                 output_matrix_ensemble = np.zeros((nt,  n_obs, 17, N), dtype=np.float32)  # 17 output variables
-                meteo_ensemble = np.zeros((nt,  n_obs, 6, N), dtype=np.float32)  # 6 meteorological variables
-                covariance_matrix = np.zeros((nt, n_obs, 6, 6), dtype=np.float32)  # 6 observed variables
+                meteo_ensemble = np.zeros(((nt-1),  n_obs, 6, N), dtype=np.float32)  # 6 meteorological variables
+                covariance_matrix = np.zeros((nt, n_obs,  4,  4), dtype=np.float32)  # 6 observed variables
                 state_matrix_prior = np.zeros((nt, ny,nx, 4), dtype=np.float32)  # 4 state variables
                 output_matrix_prior = np.zeros((nt, ny,nx, 2), dtype=np.float32)  # 17 output variables
                 temporary_val_old = np.zeros((nt, n_obs, 6, N))
+                obs = pandas.read_pickle(obs)
+                y_p = 0
+                y = np.zeros(((nt-1),n_obs))
 
-                obs = np.zeros((len(Time), n_obs, 2))
-                obs[:, :, 0] = np.random.uniform(0, 10000, size=(len(Time), n_obs))  # SWE
-                obs[:, :, 1] = np.random.uniform(0, 5, size=(len(Time), n_obs))  # HS
+                for (lat, lon), df in obs.items():
+                    df = df.set_index('time')
+                    df = df[~df.index.duplicated(keep='first')]
+                    df_res = df.resample('H').asfreq()
+                    # slice the dataframe to the start and end datetime
+                    df_1= df_res.loc[start_datetime:end_datetime]
+                    # if the df is empty fill with nan
+                    if df_1.empty:
+                        y[:,y_p]= np.ones_like(y[:,y_p]) * np.nan
+                        y_p+= 1
+                        continue
+                        # if df len is less than nt-1 resample missing dates over 1 hour frequency and fill with nan
+                    else :
+                            y[:,y_p]= df_1['Snow_depth_cm'] /100
 
+                    y_p+= 1
+
+
+
+                #  put inside the first time step of state_matrix_ensemble and output_matrix_ensemble the values of state_matrix and output_matrix for all the ensemble members at the observation points
+                for n in range(0, N):
+                    state_matrix_ensemble[0, :, :, n] = state_matrix[0, ys,xs, :]
+                    output_matrix_ensemble[0, :, :, n] = output_matrix[0, ys,xs,  :]
+
+                state_backup = state_matrix[0, :, :, :]
+
+                L_dict, s_list = pre_perturbation_val(R_dict, perturbations_data, obs_mask)
                 gc.collect()
             # --------------------------------------------------------------------------------------------------------------------------
         else :
@@ -624,7 +654,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         # --------------------------------------------------------------------------------------------------------------------------
         t_initial = time.time()
         print(f"starting run")
-        for i in range(0, len(Time)-1):
+        for i in range(0, len(Time)):
             t0 = time.time()
             if data_assimilation == 0 and cal == 0:
                 meteo[i, :, :, :], state_matrix[i, :, :, :], output_matrix[i, :, :, :], mass_balance = S3M_2D_physics(
@@ -642,68 +672,145 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
             elif data_assimilation == 1 and cal == 0:
-                meteo_masked = meteo[i, ys, xs, :]
-                state_matrix_masked = state_matrix[i, ys, xs, :]
-                meteo_ensemble_t, state_matrix_ensemble_t, temporary_val_old_t =\
-                    perturb_meteo_state(meteo_masked,
-                                        6, R_dict, N, L0, L_tilde, perturbations_data, statistics,
-                                        inflation_deflation, R_state, state_matrix_masked,
-                                        state_limits,pert_prec, pert_rad, pert_temp,
-                                        pert_rh,scale_mean_prec, c_asymm_prec,
-                                        pert_asymm_prec, temporary_val_old[i, :, :, :], obs_mask )
 
-                meteo_ensemble[i,:,  :, :] = meteo_ensemble_t
-                state_matrix_ensemble[i, :, :, :] = state_matrix_ensemble_t
-                temporary_val_old[ i,:, :, :] = temporary_val_old_t
+                # --- Step 1: Perturbation of meteo and state for each ensemble member ---
+                meteo_ensemble[i, :, :, :] ,state_matrix_ensemble[i, :, :, :],temporary_val_old[ i,:, :, :]  = \
+                    perturb_meteo_state(meteo[i, ys, xs, :],
+                                        6, L_dict, N, L0, L_tilde, s_list, statistics,
+                                        inflation_deflation, R_state,  state_matrix[i, ys, xs, :],
+                                        state_limits, pert_prec, pert_rad, pert_temp,
+                                        pert_rh, scale_mean_prec, c_asymm_prec,
+                                        pert_asymm_prec, temporary_val_old[i, :, :, :], obs_mask)
 
-                # --- Step 3: Forward model for each ensemble member  and the open loop ---
+
+                # --- Step 2: Forward model for each ensemble member  and the  deterministic run ---
                 results = Parallel(n_jobs=-1)(
                             delayed(process_ensemble_member)(
                                 n,i,  meteo_ensemble[i, :, :, :], state_matrix_ensemble[i,:, :, :], output_matrix_ensemble[i,:,:, :],
                                parameters, Time, change_part, Ice_flag,lat_point, lon_point,slope,svf) for n in range(N))
 
                 for n, (meteo_n, state_matrix_n, output_matrix_n) in enumerate(results):
-                    meteo_ensemble[ i,:,:, n] = meteo_n
-                    state_matrix_ensemble[i,:,:, n] = state_matrix_n
-                    output_matrix_ensemble[ i,:, :, n] = output_matrix_n
+                    meteo_ensemble[ i, :, :, n] = meteo_n
+                    state_matrix_ensemble[(i+1), :, :, n] = state_matrix_n
+                    output_matrix_ensemble[(i+1), :, :, n] = output_matrix_n
 
-                # run the open loop
-                meteo[i, ys, xs, :], state_matrix[i, :, :, :], output_matrix[i, :, :, :], mass_balance = S3M_2D_physics(
-                    meteo_masked, parameters, state_matrix_masked, output_matrix[i, :, :, :], Time[i], change_part,
-                    Ice_flag, lat_point, lon_point, slope, svf)
+                # run the open loop for deterministic run
+                meteo[i, :, :, :], state_matrix[(i+1), :, :, :], output_matrix[(i+1), :, :, :], mass_balance = S3M_2D_physics(
+                    meteo[i, :, :, :], parameters, state_matrix[i, :, :, :], output_matrix[i, :, :, :], Time[i], change_part,
+                    Ice_flag, lat_dem, lon_dem, slope, svf)
 
-                state_matrix_prior[i, :, :, :] = state_matrix[i, :, :, :]
-                output_matrix_prior[i, :, :, :] = output_mean[i, :, :, :]
+                state_matrix_prior[(i+1),  ys, xs, :] = state_matrix[(i+1),  ys, xs,:]
+                output_matrix_prior[(i+1),  ys, xs, 0] = output_matrix[(i+1),  ys, xs,10]
+                output_matrix_prior[(i+1), ys, xs, 1] = output_matrix[(i+1), ys, xs, 14]
 
                 # --- Step 4: EnKF assimilation at time i ---
-                state_ensemble_t = state_matrix_ensemble[i,:, :, :]
-                output_ensemble_t = output_matrix_ensemble[ i, :, :, :]
-                meteo_ensemble_t = meteo_ensemble[i, :,  :, :]
+                state_matrix[(i+1), ys, xs, :], output_mean, covariance_matrix[(i+1), :, :, :], corrections = enkf_assimilation_step(i,
+                                                                                  state_matrix_ensemble[(i+1), :, :, :],
+                                                                                  output_matrix_ensemble[(i+1), :, :, :],
+                                                                                  meteo_ensemble[i, :, :, :], obs,
+                                                                                  parameters, R_obs, state_limits,Time )
 
-                state_mean, output_mean, Pa, corrections = enkf_assimilation_step(
-                    state_ensemble_t, output_ensemble_t, meteo_ensemble_t,
-                    obs[i, :, :], parameters, R_obs, state_limits )
+                output_matrix[(i+1),  ys, xs, 10] = output_mean[:,0]
+                output_matrix[(i+1), ys, xs, 14] = output_mean[:, 1]
 
-                covariance_matrix[i, :, :, :] = Pa
-                state_matrix[i, ys, xs, :] = state_mean
-                output_matrix[i,  ys, xs, :] = output_mean
+                #Step 6 interpolate back the correction to full grid with Gausssian processes
+                # to be done
 
-                """
-                #Step 6 interpolate back the correction to full grid with Gausssian processes   
-
-               """
         # --------------------------------------------------------------------------------------------------------------------------
-    print(f" run done  in {time.time() - t_initial:.2f} seconds")
-    gc.collect()
-    y, x = obs_mask[0][0], obs_mask[0][1]
+        if data_assimilation == 1 and cal == 0:
 
-    # Example usage
-    variable_names = ['Temperature', 'Precipitation', 'Relative Humidity', 'Radiation', 'T Avg Temp',
-                      'T Avg Temp']
-    plot_meteo_ensemble(meteo_ensemble[352:,0,:,:], meteo[352:, y, x,:], Time[352:],
-                        data_settings['data']['output_file']['folder_name'], variable_names)
+            print(f" run done  in {time.time() - t_initial:.2f} seconds")
+            gc.collect()
+            # save the state and output matrix prior and posterior as netcdf files
 
-    return None
+            ds_state_posterior = xr.Dataset(
+                {
+                    "SWE_W_mm": xr.DataArray(state_matrix[1:, :, :, 0], dims=["time", "lat", "lon"],
+                                             coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+                    "SWE_D_mm": xr.DataArray(state_matrix[1:, :, :, 1], dims=["time", "lat", "lon"],
+                                             coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+                    "RHO_D_kg_m3": xr.DataArray(state_matrix[1:, :, :, 2], dims=["time", "lat", "lon"],
+                                                coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+                    "albedo": xr.DataArray(state_matrix[1:, :, :, 3], dims=["time", "lat", "lon"],
+                                           coords={"time": Time, "lat": lat_point, "lon": lon_point})})
+            state_file_posterior = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                                    f'state_posterior_data_{start}_{end}.nc')
+            ds_state_posterior.to_netcdf(state_file_posterior, engine='h5netcdf')
+
+            print(f"Posterior state data saved to {state_file_posterior}")
+
+            # Save the posterior state and output matrices to NetCDF
+            ds_output_posterior = xr.Dataset(
+                {"SWE_mm": xr.DataArray(output_matrix[1:, :, :, 0], dims=["time", "lat", "lon"],
+                                        coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+
+                 "H_S_m": xr.DataArray(output_matrix[1:, :, :, 1], dims=["time", "lat", "lon"],
+                                       coords={"time": Time, "lat": lat_point, "lon": lon_point})})
+
+            # Save to NetCDF
+            output_file_posterior = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                                 f'output_posterior_data_{start}_{end}.nc')
+            ds_output_posterior.to_netcdf(output_file_posterior, engine='h5netcdf')
+
+            print(f"Posterior output data saved to {output_file_posterior}")
+
+            # save prior state and output
+            ds_state_prior = xr.Dataset(
+                {
+                    "SWE_W_mm": xr.DataArray(state_matrix_prior[1:, :, :, 0], dims=["time", "lat", "lon"],
+                                             coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+                    "SWE_D_mm": xr.DataArray(state_matrix_prior[1:, :, :, 1], dims=["time", "lat", "lon"],
+                                             coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+                    "RHO_D_kg_m3": xr.DataArray(state_matrix_prior[1:, :, :, 2], dims=["time", "lat", "lon"],
+                                                coords={"time": Time, "lat": lat_point, "lon": lon_point}),
+                    "albedo": xr.DataArray(state_matrix_prior[1:, :, :, 3], dims=["time", "lat", "lon"],
+                                           coords={"time": Time, "lat": lat_point, "lon": lon_point})})
+
+            state_file_prior = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                                    f'state_prior_data_{start}_{end}.nc')
+            ds_state_prior.to_netcdf(state_file_prior, engine='h5netcdf')
+            print(f"Prior state data saved to {state_file_prior}")
+
+            ds_output_prior = xr.Dataset(
+                    {
+                        "Rainfall_mm": xr.DataArray(output_matrix[1:, :, :, 0], dims=["time", "lat", "lon"],
+                                                    coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Snowfall_mm": xr.DataArray(output_matrix[1:, :, :, 1], dims=["time", "lat", "lon"],
+                                                    coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Melting_mm": xr.DataArray(output_matrix[1:, :, :, 2], dims=["time", "lat", "lon"],
+                                                   coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Refreezing_mm": xr.DataArray(output_matrix[1:, :, :, 3], dims=["time", "lat", "lon"],
+                                                      coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Outflow_mm": xr.DataArray(output_matrix[1:, :, :, 4], dims=["time", "lat", "lon"],
+                                                   coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Sf_daily_cum": xr.DataArray(output_matrix[1:, :, :, 5], dims=["time", "lat", "lon"],
+                                                     coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "SWE_mm": xr.DataArray(output_matrix_prior[1:, :, :, 0], dims=["time", "lat", "lon"],
+                                               coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Snow_Age": xr.DataArray(output_matrix[1:, :, :, 11], dims=["time", "lat", "lon"],
+                                                 coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "H_D_m": xr.DataArray(output_matrix[1:, :, :, 12], dims=["time", "lat", "lon"],
+                                              coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Theta_w": xr.DataArray(output_matrix[1:, :, :, 13], dims=["time", "lat", "lon"],
+                                                coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "H_S_m": xr.DataArray(output_matrix_prior[1:, :, :, 1], dims=["time", "lat", "lon"],
+                                              coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                        "Rho_S_kg_m3": xr.DataArray(output_matrix[1:, :, :, 15], dims=["time", "lat", "lon"],
+                                                    coords={"time": Time, "lat": lat_point, "lon": lon_point, }),
+                    } )
+
+            output_file_prior = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                                    f'output_prior_data_{start}_{end}.nc')
+            ds_output_prior.to_netcdf(output_file_prior, engine='h5netcdf')
+            print(f"Prior output data saved to {output_file_prior}")
+            gc.collect()
+
+            plot_meteo_ensemble(meteo_ensemble,Time,data_settings['data']['output_file']['folder_name'], meteo)
+            plot_ensemble(state_matrix_ensemble,state_matrix_prior, state_matrix, data_settings, start, end, Time,
+                          output_matrix_ensemble, output_matrix, output_matrix_prior,y)
+            print(f"Data assimilation outputs saved.")
+
+            return None
 
     # ------------------------------------------------------------------------------------------------------------------
     if cal == 0 and data_assimilation ==0:
@@ -816,33 +923,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         meteo_ensemble_posterior = meteo_full_ensemble.reshape( nt,ny, nx, 6, N)
         # reshape meteo assimilation
         meteo_original = meteo_assimilation.reshape( nt, ny, nx,6)
-        lat_point = lat_dem[0]
-        lon_point = lon_dem[0]
-        lat_idx = np.abs(lat_dem - lat_point).argmin()
-        lon_idx = np.abs(lon_dem - lon_point).argmin()
-        fig, axes = plt.subplots(3, 2, figsize=(15, 10), constrained_layout=True)
-        # Iterate over the variables and plot
-        for i, var in enumerate(
-                ['t1d', 't10d', 'precipitation', 'relative_humidity', 'solar_radiation', 'air_temperature']):
-            ax = axes[i // 2, i % 2]  # Determine subplot position
-            ax.plot(Time, meteo_original, label='Assimilation', color='k', linewidth=2)
 
-            # Plot each ensemble member
-            for n in range(N):
-                ax.plot(Time, meteo_ensemble_posterior[lat_idx, lon_idx, i, n], color='red', alpha=0.5, linewidth=0.8)
-
-            # Add labels and title
-            ax.set_title(f"{var.replace('_', ' ').capitalize()} at ({lat_point}, {lon_point})")
-            ax.set_xlabel('Time')
-            ax.set_ylabel(var.replace('_', ' ').capitalize())
-            ax.grid(True)
-            ax.legend(['Assimilation', 'Ensemble Members'], loc='upper right')
-
-        # Adjust layout and save the figure
-        plt.tight_layout()
-        plt.savefig(os.path.join(data_settings['data']['output_file']['folder_name'], 'meteo_ensemble_comparison.png'))
-        plt.close(fig)
-       #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
         # Save the posterior state
 
         ds_state_posterior = xr.Dataset(
