@@ -10,6 +10,8 @@ from scipy import stats
 from scipy.ndimage import uniform_filter1d
 import xarray as xr
 import rioxarray as rxr
+from geopy.distance import geodesic
+
 
 warnings.filterwarnings("ignore")
 def compute_relative_humidity(temp , qair, pressure):
@@ -71,8 +73,8 @@ def stochastic_process():
     data[0][1] =0
     data[0][2] =67.4
     data[0][3] = 0.5
-    data[1][0] =1000
-    data[1][0] =1000
+    data[1][0] =500
+    data[1][0] =500
     data[1][2] = 600
     data[1][3] = 0.95
 
@@ -94,17 +96,31 @@ def quantile_mapping(dataframe, key):
 # -------------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------------
 
+def closest_station(y, x, processed_keys):
+    """
+    y, x: lat/lon of the current station
+    processed_keys: list of tuples of (lat, lon) already processed
+    """
+    min_dist = float('inf')
+    closest = None
+    for py, px in processed_keys:
+        dist = geodesic((y, x), (py, px)).km
+        if dist < min_dist:
+            min_dist = dist
+            closest = (py, px)
+    return closest
+
 
 
 def dataset_quantile_mapping():
     t0 = time.time()
     quantile_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/"
     os.makedirs(quantile_path, exist_ok=True)
-    meteo_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/meteo_2018-10-01_2019-09-30.nc"
-    # open meteo dataset
+    meteo_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/S3M_MeteoData_20181001_20190930.nc"
+    # Open the dataset
     ds = xr.open_dataset(meteo_path)
     # Define the time slices
-    slice_list = [("2018-10-01", "2019-09-30")]
+    slice_list = [("2018-10-01 00:00:00", "2019-09-30 23:00:00")]
     quantile_data_list = []
     R_dict_list = []
     statistics_dict_list = []
@@ -113,7 +129,27 @@ def dataset_quantile_mapping():
     Latitudes_1d = np.unique(ds.lat)
     Longitudes_1d = np.unique(ds.lon)
 
-    # now create a new xarray dataset with dimensions time, Latitude, Longitude and use  'AirTemperature', 'Rain', 'IncRadiation',  'RelHumidity' as data variables
+    AirTemperature_3D = np.repeat(
+        ds['AirTemperature'].values [:, :, np.newaxis],  # shape (time, 43, 1)
+        43, axis=2
+    )  # now shape is (8760, 43, 43)
+
+    Rain_3D = np.repeat(
+        ds['Rain'].values [:, :, np.newaxis],  # shape (time, 43, 1)
+        43, axis=2
+    )  # now shape is (8760, 43, 43)
+
+    IncRadiation_3D = np.repeat(
+        ds['IncRadiation'].values [:, :, np.newaxis],  # shape (time, 43, 1)
+        43, axis=2
+    )  # now shape is (8760, 43, 43)
+    RelHumidity_3D = np.repeat(
+        ds['RelHumidity'].values [:, :, np.newaxis],  # shape (time, 43, 1)
+        43, axis=2
+    )  # now shape is (8760, 43, 43)
+
+
+    # Build the new dataset
     ds_new = xr.Dataset(
         coords={
             "time": ds.time,
@@ -121,13 +157,13 @@ def dataset_quantile_mapping():
             "Longitude": Longitudes_1d
         },
         data_vars={
-            "AirTemperature": (("time", "Latitude", "Longitude"), ds["AirTemperature"].values),
-            "Rain": (("time", "Latitude", "Longitude"), ds["Rain"].values),
-            "IncRadiation": (("time", "Latitude", "Longitude"), ds["IncRadiation"].values),
-            "RelHumidity": (("time", "Latitude", "Longitude"), ds["RelHumidity"].values)
+            "AirTemperature": (("time", "Latitude", "Longitude"), AirTemperature_3D),
+            "Rain": (("time", "Latitude", "Longitude"), Rain_3D),
+            "IncRadiation": (("time", "Latitude", "Longitude"), IncRadiation_3D),
+            "RelHumidity": (("time", "Latitude", "Longitude"), RelHumidity_3D)
         }
-    )
 
+    )
     print(ds_new.coords)
 
     station_list = pandas.read_csv('/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/STATION_ID_VDA.csv')
@@ -135,10 +171,11 @@ def dataset_quantile_mapping():
     station_list['lat'] = station_list['lat'].str.replace(',', '.').astype(float)
     station_list['lon'] = station_list['lon'].str.replace(',', '.').astype(float)
 
-    # read station list
+    i = 0
 
     # crea una mask per tenere solo le stazioni presenti in station_list, tenendo conto che la matrice meteo ha shape (nt, ny, nx, 6)
     obs_mask = []
+
     for index, row in station_list.iterrows():
         lat_station = row['lat']
         lon_station = row['lon']
@@ -157,9 +194,13 @@ def dataset_quantile_mapping():
 
             # Remove values of precipitation and radiation that are less than or equal to 0
             meteo_ds['Rain'] = meteo_ds['Rain'].where(meteo_ds['Rain'] > 0, np.nan)
+
             meteo_ds['IncRadiation'] = meteo_ds['IncRadiation'].where(meteo_ds['IncRadiation'] > 0, np.nan)
 
             temperature = meteo_ds["AirTemperature"]
+            # set values below -35 to -35
+
+            temperature = temperature.where(temperature > -30, -15)
 
             # remove values below -9999c for temperature
             temperature = temperature.where(temperature > -9999, np.nan)
@@ -167,10 +208,12 @@ def dataset_quantile_mapping():
             radiation = meteo_ds["IncRadiation"]
             precipitation = meteo_ds["Rain"]
             relative_humidity = meteo_ds["RelHumidity"]
+            # clip relative humidity between 0 and 100
+            relative_humidity = relative_humidity.clip(0, 100)
 
             # Convert the smoothed arrays back to xarray.DataArray
             T_albedo = meteo_ds["AirTemperature"].rolling(time=24, min_periods=1).mean()
-            T_melting = meteo_ds["AirTemperature"].rolling(time=24, min_periods=1).mean()
+            T_melting = meteo_ds["AirTemperature"].rolling(time=48, min_periods=1).mean()
 
             # Assign a name to the DataArray
             T_albedo.name = 'T_albedo'
@@ -224,14 +267,13 @@ def dataset_quantile_mapping():
 
             # if the df is empty  or there are NaN values in precipitation column or temperature column
             if df.empty or df["prc_mm"].isnull().any() or df["air_temp_degC"].isnull().any():
-                #  prendi quella più vicina processata
-                R = R_dict_list[-1]["R"] # modifica
+                nearest_key = closest_station(y, x, [entry["key"] for entry in quantile_data_list])
                 print(f"DataFrame is empty after removing zero precipitation for station at lon: {x}, lat: {y}. Using previous R matrix.")
-                # use also the previous statistics
-                statistics = statistics_dict_list[-1]
-                # use also the previous variables for quantile data
-                variables = quantile_data_list[-1]
-
+                # find the R matrix and statistics from the nearest station
+                R = next(entry for entry in R_dict_list if entry["key"] == nearest_key)["R"]
+                # Use its quantile data and statistics
+                statistics = next(entry for entry in statistics_dict_list if entry["key"] == nearest_key)
+                variables = next(entry for entry in quantile_data_list if entry["key"] == nearest_key)
             else:
                 # continue from here
                 R = df.corr()
@@ -265,19 +307,20 @@ def dataset_quantile_mapping():
                         "std": float(np.nanstd(data)),
                         "min": float(np.nanmin(data)),
                         "max": float(np.nanmax(data)),
+                        "median" : float(np.nanmedian(data))
                     }
                     for var, data in vars.items()
                 }
 
             # Do the same for R and statistics
-            R_dict = { **{"R": R}, "key": (y,x)}
+            R_dict = { **{"R": R}, "key": (i,i)}
             R_dict_list.append(R_dict)
 
-            statistics_dict = {**statistics,   "key": (y,x)}
+            statistics_dict = {**statistics,   "key": (i,i)}
             statistics_dict_list.append(statistics_dict)
 
             # Assemble quantile data
-            quantile_data = {**variables,  "key": (y,x)}
+            quantile_data = {**variables,  "key": (i,i)}
             quantile_data_list.append(quantile_data)
 
             # Create quantile dictionary using multindex as key
@@ -298,6 +341,7 @@ def dataset_quantile_mapping():
             }
                 for entry in statistics_dict_list
             }
+            i += 1
 
         # Save output files
         output_files = {
@@ -312,6 +356,7 @@ def dataset_quantile_mapping():
 
         print(f"Quantile mapping for time slice {start} to {end} completed in {time.time() - t0:.2f} seconds")
 
+
     return
 
 # -------------------------------------------------------------------------------------------------
@@ -321,7 +366,7 @@ def dataset_quantile_mapping():
 def R_state_matrix():
     R_dict_list = []
     # Specify the file path
-    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/state_data_2018-01-01_2018-01-31.nc'
+    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/state_data_2018-10-01_2019-09-30.nc'
     # Load the NetCDF file
     data = xr.open_dataset(file_path)
     station_list = pandas.read_csv('/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/STATION_ID_VDA.csv')
@@ -345,7 +390,7 @@ def R_state_matrix():
         ilon = np.abs(data.lon - lon_station).argmin().item()
         obs_mask.append((ilat, ilon))
 
-
+    i = 0
     for  y, x  in obs_mask:
         # Select the point in the DataArray
         point = data.isel(lat=y,lon=x)
@@ -362,8 +407,11 @@ def R_state_matrix():
 
         # if  data_df is empty after removing invalid values, use the previous R matrix. do also in the case that data_df["SWE_W_mm"] is all zeros
         if data_df.empty or data_df["SWE_W_mm"].eq(0).all():
-            R_state_reconstructed  = R_dict_list[-1]["R"]
-            print(f"DataFrame is empty for station at lon: {x}, lat: {y}. Using previous R matrix.")
+            nearest_key = closest_station(y, x, [entry["key"] for entry in R_dict_list])
+            print(
+                f"DataFrame is empty after removing zero precipitation for station at lon: {x}, lat: {y}. Using previous R matrix.")
+            # find the R matrix and statistics from the nearest station
+            R_state_reconstructed = next(entry for entry in R_dict_list if entry["key"] == nearest_key)["R"]
 
         else:
             # Compute the covariance matrix
@@ -377,8 +425,9 @@ def R_state_matrix():
             print( R_state_reconstructed)
 
         #print(R_state_reconstructed)
-        R_dict = {**{"R": R_state_reconstructed}, "key": (y, x)}
+        R_dict = {**{"R": R_state_reconstructed}, "key": (i, i)}
         R_dict_list.append(R_dict)
+        i += 1
     # Create R dictionary using multindex as key
     R_dict = {entry["key"]: {
         "R": entry["R"]
@@ -386,9 +435,8 @@ def R_state_matrix():
         for entry in R_dict_list
     }
     # Save output files
-    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2018-01-01_2018-01-31.pkl', 'wb') as f:
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2018-10-01_2019-09-30.pkl', 'wb') as f:
         pickle.dump(R_dict, f)
-
     return
 # -------------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------------
@@ -509,7 +557,7 @@ def downscaled_quantile_mapping():
                 dims=temperature.dims
             )
             T_melting = xr.DataArray(
-                uniform_filter1d(temperature.values, size=24, axis=0, mode='nearest'),
+                uniform_filter1d(temperature.values, size=48, axis=0, mode='nearest'),
                 coords=temperature.coords,
                 dims=temperature.dims
             )
@@ -638,7 +686,7 @@ def downscaled_quantile_mapping():
 def R_state_matrix_downscaled():
     R_state_list = []
     # Specify the file path
-    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/state_data_2018-01-01_2018-01-31.nc'
+    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/state_data_2018-10-01_2019-09-30.nc'
     # Load the NetCDF file
     data = xr.open_dataset(file_path)
 

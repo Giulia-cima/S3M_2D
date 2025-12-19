@@ -10,11 +10,11 @@ import logging
 from lib_utilis_data_proc import get_args
 from lib_data_io_json import read_file_settings
 
-
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 log = logging.getLogger()
-
+#------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------
 def plot_map(data_2d, dem, title, colorbar_label, save_file, cmap):
 
     if isinstance(dem, str):
@@ -648,6 +648,9 @@ def plot_time_series_open_loop_vda():
         log.info(f"\n📊 Mean RMSE Snow Depth VDA: {np.mean(rmse_list):.3f} m")
         log.info(f"📊 Mean STD  Snow Depth VDA: {np.mean(std_list):.3f} m")
 
+
+#------------------------------------------------------------------------------------------------------
+#----- DATA ASSIMILATION----------------------------------------------------------------------------
 def plot_meteo_ensemble(meteo_ensemble, Time, output_folder,meteo_original):
     """
     Plot the time series of the meteorological ensemble for the first observed point.
@@ -662,8 +665,11 @@ def plot_meteo_ensemble(meteo_ensemble, Time, output_folder,meteo_original):
         plt.subplot(2, 3, i + 1)
         for n in range(num_ensemble):
             plt.plot(Time, meteo_ensemble[:, 0, i, n], color= colorors[n],  alpha=0.5)
+        try:
+            plt.plot(Time, meteo_original[:,0, 0, i], color='red', label='Original', linewidth=1)
+        except:
+            plt.plot(Time, meteo_original[:, 0, i], color='red', label='Original', linewidth=1)
 
-        plt.plot(Time, meteo_original[:,0, 0, i], color='red', label='Original', linewidth=1)
 
         plt.title(list_titles[i], fontsize=15)
         plt.xlabel('Time', fontsize=12)
@@ -679,46 +685,55 @@ def plot_meteo_ensemble(meteo_ensemble, Time, output_folder,meteo_original):
     plt.close()
     print(f"Figure saved to {output_path}")
 
-def plot_ensemble(state_matrix_ensemble,state_matrix_prior, state_matrix, data_settings, start, end, Time,
-                          output_matrix_ensemble, output_matrix, output_matrix_prior,obs):
+
+
+def plot_ensemble(state_matrix_ensemble,state_matrix, state_matrix_analisys, data_settings, start, end, Time,
+                          output_matrix_ensemble, output_matrix, output_matrix_analisys,obs):
 
     for i in range(state_matrix.shape[1]):
 
-        # Plot state ensemble and output ensemble
-        colors = plt.cm.viridis(np.linspace(0, 1, state_matrix_ensemble.shape[3]))
         fieldnames_state = ["SWE_w", "SWE_d", "rho_d", "albedo"]
 
-        plt.figure(figsize=(20, 12))
+        plt.figure(figsize=(12, 12))
         for p in range(state_matrix_ensemble.shape[2]):
             plt.subplot(3, 2, p + 1)
             for q in range(state_matrix_ensemble.shape[3]):  # Ensure q is within bounds
-                plt.plot(Time, state_matrix_ensemble[1:, i, p, q], color='lightgrey', linewidth=1, linestyle="-", alpha=0.5,
+                plt.plot(Time, state_matrix_ensemble[:, i, p, q], color='lightgreen', linewidth=1, linestyle="-", alpha=0.5,
                          label=f'Ensemble {q + 1}' if p == 0 else "")
-            plt.plot(Time, state_matrix_prior[1:, i, i, p], color='black', linestyle='-', linewidth=2, label='Deterministic')
-            plt.plot (Time, state_matrix[1:, i, i, p], color='red', linestyle='-', linewidth=2, label='Posterior mean')
+            try:
+                plt.plot(Time, state_matrix[:, i, i, p], color='black', linestyle="-", linewidth=0.5, label='Deterministic Background')
+            except:
+                plt.plot(Time, state_matrix[:, i, p], color='black', linestyle="-", linewidth=0.5,
+                         label='Deterministic Background')
+
+            plt.plot (Time, state_matrix_analisys[:, i, p], color='red', linestyle='-', linewidth=2, label='Analysis')
             plt.title(fieldnames_state[p], fontsize=15)
             plt.xlabel('Time', fontsize=12)
             plt.ylabel('Value', fontsize=12)
             plt.grid()
-            plt.legend()
         plt.tight_layout()
         plt.savefig(os.path.join(data_settings['data']['output_file']['folder_name'],
-                                 f'state_ensemble_timeseries_{start}_{end}.png'))
+                                 f'state_ensemble_timeseries_{i}_{start}_{end}.png'))
         plt.close()
 
         fieldnames_output = ["SWE_mm", "H_S_m"]
         # now do the same for swe and snow depth . you find it in the position 10 and 14  of output matrix and output vector and output matrix ensemble
         # Create a single figure with two subplots for SWE and Snow Depth
-        fig, axes = plt.subplots(2, 1, figsize=(12, 12), constrained_layout=True)
+        fig, axes = plt.subplots(2, 1, figsize=(8, 8), constrained_layout=True)
 
         # Plot SWE in the first subplot
         for q in range(output_matrix_ensemble.shape[3]):  # Ensure q is within bounds
-            axes[0].plot(Time, output_matrix_ensemble[1:, i, 10, q], color='lightgreen', linewidth=1)
+            axes[0].plot(Time, output_matrix_ensemble[:, i, 10, q], color='lightgreen', linewidth=1)
+        try :
 
-        axes[0].plot(Time, output_matrix[1:, i, i, 10], color='red', linestyle='--', linewidth=0.5,
-                     label='Posterior mean')
-        axes[0].plot(Time, output_matrix_prior[1:, i, i, 0], color='black', linestyle='--', linewidth=1,
-                     label='Deterministic')
+            axes[0].plot(Time, output_matrix[:, i, i, 10], color='black', linestyle='-', linewidth=1,
+                         label='Deterministic Background')
+        except:
+            axes[0].plot(Time, output_matrix[:, i, 10], color='black', linestyle='-', linewidth=1,
+                         label='Deterministic Background')
+
+        axes[0].plot(Time, output_matrix_analisys[:, i, 0], color='red', linestyle='-', linewidth=1,
+                     label='Analysis')
         axes[0].set_title(fieldnames_output[0], fontsize=15)
         axes[0].set_xlabel('Time', fontsize=12)
         axes[0].set_ylabel('Value', fontsize=12)
@@ -727,11 +742,12 @@ def plot_ensemble(state_matrix_ensemble,state_matrix_prior, state_matrix, data_s
 
         # Plot Snow Depth in the second subplot
         for q in range(output_matrix_ensemble.shape[3]):  # Ensure q is within bounds
-            axes[1].plot(Time, output_matrix_ensemble[1:, i, 14, q], color='lightgreen', linewidth=1)
-        axes[1].plot(Time, output_matrix[1:, i, i, 14], color='red', linestyle='-', linewidth=2, label='Posterior mean')
-        axes[1].plot(Time, output_matrix_prior[1:, i, i, 1], color='black', linestyle='--', linewidth=1,
-                     label='Deterministic')
-        axes[1].plot(Time, obs[:,i], color='blue', linestyle='-', linewidth=2, label='Observations')
+            axes[1].plot(Time, output_matrix_ensemble[:, i, 14, q], color='lightgreen', linewidth=1)
+        axes[1].plot(Time, output_matrix[:, i, i, 14], color='black', linestyle='-', linewidth=1,
+                     label='Deterministic Background')
+        axes[1].plot(Time, output_matrix_analisys[:, i, 1], color='red', linestyle='-', linewidth=1, label='Analysis')
+        axes[1].plot(Time, obs[:,i], color='blue',  marker='o', label='Observations', markersize=5, linestyle='None')
+
         axes[1].set_title(fieldnames_output[1], fontsize=15)
         axes[1].set_xlabel('Time', fontsize=12)
         axes[1].set_ylabel('Value', fontsize=12)
@@ -745,6 +761,10 @@ def plot_ensemble(state_matrix_ensemble,state_matrix_prior, state_matrix, data_s
     return
 
 
+
+
+#------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------------------
 if __name__ == "__main__":
     None
 

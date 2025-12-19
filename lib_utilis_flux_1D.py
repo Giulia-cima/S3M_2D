@@ -59,9 +59,9 @@ def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vect
     Returns:
         Rho_D, RhoS0, SnowTemp, H_D : arrays of same shape as SWE_D
     """
-    Rho_D = state_vector[:,  2]
-    RhoS0 = output_vector[:, 15]
-    H_D = output_vector[:, 12]
+    Rho_D = state_vector[2,:]
+    RhoS0 = output_vector[15,:]
+    H_D = output_vector[12,:]
     SnowTemp = np.zeros_like(SWE_D)
 
     # Fresh snow density
@@ -158,8 +158,10 @@ def Hydraulics(Rho_D, RhoW, SWE_D, SWE_W, H_D, dt):
     H_S[cond3] = 0
     Sr[cond3] = 0
 
-    # Irreducible saturation and effective saturation
-    Sr_irr = np.where(Porosity > 0, 0.02 * ((Rho_D / RhoW) / Porosity), 0)
+    mask_porosity = Porosity > 0
+    Sr_irr = np.zeros_like(Rho_D, dtype=float)
+    Sr_irr[mask_porosity] = 0.02 * ((Rho_D[mask_porosity] / RhoW) / Porosity[mask_porosity])
+
     Sr_star = np.where(Porosity > 0, (Sr - Sr_irr) / (1 - Sr_irr), 0)
 
     # --- SSA, r_e, permeability, conductivity ---
@@ -373,9 +375,10 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_
 
         # --- WET condition (Ta > 0°C) ---
         wet_mask = T_albedo > 0
+        albedo_old_flat = albedo_old.ravel()
 
         if np.any(wet_mask):
-            diff = np.abs(albedo_pivot_wet[:, None, None] - albedo_old)
+            diff = np.abs(albedo_pivot_wet[:, None] - albedo_old_flat[None, :])
             idx = np.argmin(diff, axis=0)
             next_idx = np.minimum(idx + 1, len(albedo_pivot_wet) - 1)
             albedo[wet_mask] = albedo_pivot_wet[next_idx[wet_mask]]
@@ -383,7 +386,7 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_
         # --- DRY condition (Ta ≤ 0°C) ---
         dry_mask = T_albedo <= 0
         if np.any(dry_mask):
-            diff = np.abs(albedo_pivot_dry[:, None, None] - albedo_old)
+            diff = np.abs(albedo_pivot_dry[:, None] - albedo_old_flat[None, :])
             idx = np.argmin(diff, axis=0)
             next_idx = np.minimum(idx + 1, len(albedo_pivot_dry) - 1)
             albedo[dry_mask] = albedo_pivot_dry[next_idx[dry_mask]]

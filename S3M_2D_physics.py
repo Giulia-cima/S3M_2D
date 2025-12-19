@@ -31,10 +31,12 @@ from lib_utilis_data_proc import read_path
 def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_part, Ice_flag, lat, lon, slope, svf):
     # ------------------------------------------------------------------------------------------------------------------
     # Meteorological input upload
+
     T_air = meteo[:, :,  0]
     P = meteo[:, :, 1]
     RH = meteo[:, :,  2]
     Radiation = meteo[:, :,  3]
+
 
     # ------------------------------------------------------------------------------------------------------------------
     mask = P < 0  # True where P < 0
@@ -74,6 +76,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     # Sanity check
     mask_sanity = output_vector[ :, :,  10] < 0.01
     state_vector[mask_sanity, :-1] = 0
+    state_vector[mask_sanity, 3] = 0.5
     output_vector[mask_sanity, 10:] = 0
     # ------------------------------------------------------------------------------------------------------------------
     if IceMassBalance == 1 or IceMassBalance == 2:
@@ -110,8 +113,6 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     # Compute melting and refreezing
     cm = dt / 86400
     mrad0, mr0 = parameters["mrad0"], parameters["mr0"]
-    #mr0 = read_path(parameters["mr_calibrated_file"])
-    #mrad0 = read_path(parameters["mrad_calibrated_file"])
 
     As, albedo, multiplicative_term = (output_vector[:, :, 11], state_vector[:, :,  3],
                                        parameters["multiplicative_albedo"])
@@ -307,15 +308,11 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
 
     delta_swe = np.round(SWE - output_vector[:, :,10], 2)
     delta_flux = np.round(Snowfall + Rainfall - outflow, 2)
-    cond_balance = (delta_swe != delta_flux)
+    cond_balance = np.abs(np.round(delta_swe[:,:] - delta_flux[:,:] ,1))
 
-    # If mass balance check fails at 2 decimals AND at 1 decimal, flag error
-    delta_swe_1 = np.round(SWE - output_vector[:, :, 10], 1)
-    delta_flux_1 = np.round(Snowfall + Rainfall - outflow, 1)
-    cond_balance_1 = (delta_swe_1 != delta_flux_1)
-
-    if np.any(cond_balance & cond_balance_1):
+    if np.any(cond_balance > 0):
         mass_balance = np.ones_like(SWE)  # or any variable with the shape you want
+        #print("Mass balance check failed at some pixels in open loop.")
     else:
         mass_balance = np.zeros_like(SWE)
     """ 
@@ -373,7 +370,10 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     # sanity check
 
     mask = output_vector_new[:, :, 10] < 0.01
-    state_vector_new[mask, :-1] = 0
+    state_vector_new[mask, 0] = 0
+    state_vector_new[mask, 1] = 0
+    state_vector_new[mask, 2] = 0
+    state_vector_new[mask, 3] = 0.5
     output_vector_new[mask, 10:] = 0
 
 

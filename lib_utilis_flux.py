@@ -137,6 +137,7 @@ def Hydraulics(Rho_D, RhoW, SWE_D, SWE_W, H_D, dt):
 
     Porosity = np.where(H_D > 0, 1 - Rho_D / 917, 0)
 
+
     # Initialize output arrays
     H_S = np.zeros_like(H_D, dtype=float)
     Sr = np.zeros_like(H_D, dtype=float)
@@ -158,7 +159,9 @@ def Hydraulics(Rho_D, RhoW, SWE_D, SWE_W, H_D, dt):
     Sr[cond3] = 0
 
     # Irreducible saturation and effective saturation
-    Sr_irr = np.where(Porosity > 0, 0.02 * ((Rho_D / RhoW) / Porosity), 0)
+    mask_porosity = Porosity > 0
+    Sr_irr = np.zeros_like(Rho_D, dtype=float)
+    Sr_irr [mask_porosity] = 0.02 * ((Rho_D[mask_porosity] / RhoW) / Porosity[mask_porosity])
     Sr_star = np.where(Porosity > 0, (Sr - Sr_irr) / (1 - Sr_irr), 0)
 
     # --- SSA, r_e, permeability, conductivity ---
