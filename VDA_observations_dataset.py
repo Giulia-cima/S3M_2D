@@ -226,8 +226,9 @@ with open(pkl_file, 'rb') as f:
 print(state_limits)
 
 # modify state_limits
-state_limits[1][1] = 800
-state_limits[1][0] = 800
+state_limits[1][1] = 1000
+state_limits[1][0] = 1000
+state_limits[1][2] = 700
 state_limits[0][2] =67.4
 print(state_limits)
 

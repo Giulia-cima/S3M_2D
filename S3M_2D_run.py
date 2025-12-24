@@ -163,7 +163,7 @@ def optimize_for_key(key,values,start,end):
 def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_input, output_input):
     #  ------------------------------------------------------------------------------------------------------------------
     # trace time of the algorithm
-    t0 = time.time()
+    t_start = time.time()
     start_time = datetime.now()
     start_time_str = start_time.strftime("%Y-%m-%d %H:%M:%S")
     # ------------------------------------------------------------------------------------------------------------------
@@ -225,9 +225,11 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             'val_x': [0],
             'val_swe_a': [0],
             'val_swe_b': [0],
+            'val_swe_b1': [0],
             'val_swe_open': [0],
             'val_hs_a': [0],
             'val_hs_b': [0],
+            'val_hs_b1': [0],
             'val_hs_open': [0],
             'val_hs_obs': [0],
         }
@@ -286,6 +288,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         R_dict= pandas.read_pickle(fill_tags2string(data_settings['data']['info_file']["perturbations"]['R'], data_settings['template'], tag))
         statistics = pandas.read_pickle(fill_tags2string(data_settings['data']['info_file']["perturbations"]['statistics'], data_settings['template'], tag))
         R_state = pandas.read_pickle(fill_tags2string(data_settings['data']['info_file']["perturbations"]['R_state'], data_settings['template'], tag))
+        statistics_state = pandas.read_pickle(fill_tags2string(data_settings['data']['info_file']["perturbations"]['statistics_state'], data_settings['template'], tag))
         state_limits = pandas.read_pickle(fill_tags2string(data_settings['data']['info_file']["perturbations"]['state_limits'], data_settings['template'], tag))
         inflation_deflation = [f for f in data_settings['data']['info_file']["perturbations"]['inflation_deflation'].values()]
         # --------------------------------------------------------------------------------------------------------------
@@ -321,7 +324,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             names=("y", "x"))
         lookup_table = {(y_val, x_val): idx
             for idx, (y_val, x_val) in enumerate(multi_index_coarse)}
-        print(f"MultiIndex created in {time.time() - t0:.2f} seconds")
+        print(f"MultiIndex created in {time.time() - t_start:.2f} seconds")
 
         gc.collect()
 
@@ -367,7 +370,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         else:
             state_matrix[0, :, :, :] = state_vector
             output_matrix[0, :, :, :] = output_vector
-        print(f"Open data in {time.time() - t0:.2f} seconds")
+        print(f"Open data in {time.time() - t_start:.2f} seconds")
         gc.collect()
 
         n_clusters = 1500
@@ -398,7 +401,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             var: xr.DataArray(data=vals, coords={'point': multi_index_coarse, 'time': Time}, dims=('point', 'time'))
             for var, vals in result.items()
         })
-        print(f"Mapped data in {time.time() - t0:.2f} seconds")
+        print(f"Mapped data in {time.time() - t_start:.2f} seconds")
         downscaled_ds.close()
         gc.collect()
         meteo[:, :, 0] = era5_mapped[air_temp_tag] - 273.15  # Directly assign air temperature in Celsius
@@ -410,11 +413,10 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         meteo[:, :, 3] = era5_mapped[solar_rad_tag]  # Solar radiation
         meteo[:, :, 4] = era5_mapped["t1d"] - 273.15
         meteo[:, :, 5] = era5_mapped["t10d"] - 273.15  # Average temperature over 10 days
-        print(f"Meteo matrix built in {time.time() - t0:.2f} seconds")
+        print(f"Meteo matrix built in {time.time() - t_start:.2f} seconds")
         era5_mapped.close()
         gc.collect()
         # Build meteo matrix
-        t0 = time.time()
         if cal == 1:
             era5 = era5_mapped.unstack("point").compute()  # Compute only when necessary
             era5_mapped = era5.sel(y=lat, x=lon,
@@ -486,9 +488,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         m = 6
         meteo = np.zeros((nt,ny,nx, m), dtype=np.float32)
         meteo[:, :, :, 0] = meteo_ds["AirTemperature"]
-
-
-
         meteo[:, :, :, 1] = meteo_ds["Rain"]
         # set as limit 0 the negative precipitation values
         meteo[:, :, :, 1] = np.where(meteo[:, :, :, 1] < 0, 0, meteo[:, :, :, 1])
@@ -502,13 +501,15 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         meteo[:, :, :, 5] = meteo_ds["AirTemperature"].rolling(time=48, min_periods=1).mean()
 
         gc.collect()
-        print(f"Open data in {time.time() - t0:.2f} seconds")
+        print(f"Open data in {time.time() - t_start:.2f} seconds")
         #------------------------------------------------------------------------------------------------------------------
 
         if data_assimilation == 0:
 
             state_backup = np.zeros((ny, nx, 4), dtype=np.float32)
             output_backup = np.zeros((ny, nx, 17), dtype=np.float32)
+            state_matrix= np.zeros((nt, ny, nx, 4), dtype=np.float32)
+            output_matrix= np.zeros((nt, ny, nx, 17), dtype=np.float32)
             # save meteo as a netcdf file for checking
             meteo_output = xr.Dataset(
                     {
@@ -551,7 +552,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
             # Save the dataset to a NetCDF file
             meteo_output.to_netcdf(meteo_path)
-            print(f"Meteo matrix built in {time.time() - t0:.2f} seconds")
+            print(f"Meteo matrix built in {time.time() - t_start:.2f} seconds")
         # --------------------------------------------------------------------------------------------------------------------------
         if data_assimilation == 1 and cal == 0:
             state_matrix = np.zeros((nt, ny, nx, 4), dtype=np.float32)
@@ -659,14 +660,14 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
         elif data_assimilation == 1 and cal == 0 :
             results = Parallel(n_jobs=25)(
-            delayed(perturb_point)(
+                    delayed(perturb_point)(
                     meteo_input[j, :, point],
                     state_matrix_ensemble[(j-1), :, :, point],
                     temporary_val[(j-1), :, :, point],
                     meteo_matrix[j, :, :, point],
                     output_matrix_ensemble[(j-1), :, :, point],
                     s_dic[(point, point)],
-                    statistics,
+                    statistics[(point,point)],
                     keys,
                     inflat_deflat[j, :, :],
                     R_dict[(point, point)]["R"].values,
@@ -681,7 +682,8 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                     pert_asymm_prec,
                     c_asymm_prec,
                     L0,
-                    L_tilde
+                    L_tilde,
+                statistics_state[(point,point)]
                 )
                 for point  in range(0,n_obs)
             )
@@ -726,9 +728,8 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # ------------------------------------------------------------------------------------------------------
             # ASSIMILATION STEP
             result = Parallel(n_jobs=25)(delayed(assimilation_point)(meteo_matrix[j, :, :, p],  state_matrix_ensemble[j, :, :, p],  output_matrix_ensemble[j, :, :, p], y[:, j, p], parameters,
-                                   state_limits, R_measures, Xb_old[j, :, :, p],  Xa_mean[j, :, p], Pa[j, :, :, p], output_a_mean[j, :, p], N)
+                                   state_limits, R_measures, Xb_old[j, :, :, p],  Xa_mean[j, :, p], Pa[j, :, :, p], output_a_mean[j, :, p], N,statistics_state[(p,p)])
                                              for p in range(0,n_obs))
-
             # Unpack results
             for p, (Xa_mean_p, Pa_p, output_a_mean_p, Xb_old_p) in enumerate(result):
                 Xa_mean[j, :, p] = Xa_mean_p
@@ -742,19 +743,22 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                 output_matrix_ensemble[j, i, 10, :] = output_a_mean[j, 0, :]
                 output_matrix_ensemble[j, i, 14, :] = output_a_mean[j, 1, :]
 
-        if 0:
+        if 1:
             val_x = values['val_x']
             val_x.append(val_x[-1] + 1)
 
             new_values = {
-                'val_swe_a': output_a_mean[j, 0],
-                'val_swe_b': Xb_old[j, 0, 0] + Xb_old[j, 0, 1],
-                'val_swe_open': output_vector[10],
-                'val_hs_a': output_a_mean[j, 1],
-                'val_hs_b': output_matrix_old[j, 0, 1],
-                'val_hs_open': output_vector[14],
-                'val_hs_obs': y[j, 1]
-            }
+                    'val_swe_a': output_a_mean[j, 0, 7] ,
+                    'val_swe_b': output_matrix_old[j, 0, 0, 7],
+                    'val_swe_b1' : output_matrix_old[j, 1, 0, 7],
+                    'val_swe_open': output_vector_point[j, 10, 7],
+                    'val_hs_a': output_a_mean[j, 1, 7],
+                    'val_hs_b': output_matrix_old[j, 0, 1, 7],
+                    'val_hs_b1' : output_matrix_old[j, 1, 1, 7],
+                    'val_hs_open': output_vector_point[j, 14, 7],
+                    'val_hs_obs': y[1, j, 7]
+                }
+
 
             for key, value in new_values.items():
                     values[key].append(value)
@@ -766,6 +770,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # -----------------
             axs[0].plot(val_x, values['val_swe_a'], label='analysis', color='cyan')
             axs[0].plot(val_x, values['val_swe_b'], label='background', color='lightgrey')
+            axs[0].plot(val_x, values['val_swe_b1'],label='background', color='lightgreen')
             axs[0].plot(val_x, values['val_swe_open'], label='open loop', color='k')
             axs[0].legend()
 
@@ -774,6 +779,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # -----------------
             axs[1].plot(val_x, values['val_hs_a'], label='analysis', color='cyan')
             axs[1].plot(val_x, values['val_hs_b'], label='background', color='lightgrey')
+            axs[1].plot(val_x, values['val_hs_b1'],label='background', color='lightgreen')
             axs[1].plot(val_x, values['val_hs_open'], label='open loop', color='k')
             axs[1].plot(val_x, values['val_hs_obs'],label='obs', color='red',marker='o', linestyle='None', markersize=0.5)
             axs[1].legend()
@@ -786,9 +792,17 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
         print(f"Run for time step {j} done in {time.time() - t0:.2f} seconds")
         # --------------------------------------------------------------------------------------------------------------------------
-    p = 0
-    n = 0
-    for p in range (0,n_obs):
+    # TRACE TIME
+    print(f"Total run done in {time.time() - t_start:.2f} seconds")
+
+
+    # -----------------------------------------------------------------------------------------------------------------
+    # -----------------------------------------------------------------------------------------------------------------
+    if data_assimilation == 1 and cal == 0:
+
+        p = 0
+        n = 0
+        for p in range(0, n_obs):
 
             fig, axes = plt.subplots(3, 2, figsize=(12, 10), constrained_layout=True)
             axes = axes.flatten()
@@ -803,7 +817,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             ]
 
             # Colors for ensemble members
-            colors =plt.cm.viridis(np.linspace(0, 1, N))
+            colors = plt.cm.viridis(np.linspace(0, 1, N))
 
             for i, var in enumerate(meteo_vars):
                 ax = axes[i]
@@ -847,10 +861,11 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # Plot SWE in the first subplot
             axes[0].plot(Time, output_vector_point[:, 10, p], color='black', linestyle='-', linewidth=1,
                          label='Deterministic Background')
+            for n in range(N):
+                axes[0].plot(Time, output_matrix_old[:, n, 0, p], color=colors[n], alpha=0.5, linewidth=0.8,
+                             label='Perturbed Ensemble' if n == 0 else "")
             axes[0].plot(Time, output_a_mean[:, 0, p], color='red', linestyle='-', linewidth=2,
                          label='Analysis Ensemble Mean')
-            for n in range(N):
-                axes[0].plot(Time,output_matrix_old[:, n, 0, p],color=colors[n],alpha=0.5,linewidth=0.8,label='Perturbed Ensemble' if n == 0 else "" )
             axes[0].set_title('SWE_mm', fontsize=15)
             axes[0].set_xlabel('Time', fontsize=12)
             axes[0].set_ylabel('Value', fontsize=12)
@@ -859,11 +874,13 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # Plot Snow Depth in the second subplot
             axes[1].plot(Time, output_vector_point[:, 14, p], color='black', linestyle='-', linewidth=1,
                          label='Deterministic Background')
+            for n in range(N):
+                axes[1].plot(Time, output_matrix_old[:, n, 1, p], color=colors[n], alpha=0.5, linewidth=0.8,
+                             label='Perturbed Ensemble' if n == 0 else "")
             axes[1].plot(Time, output_a_mean[:, 1, p], color='red', linestyle='-', linewidth=1,
                          label='Analysis Ensemble Mean')
-            axes[1].plot(Time, y[1,:, p], color='blue', marker='o', markersize =2,  label='Observations')
-            for n in range(N):
-                axes[1].plot( Time,output_matrix_old[:, n, 1, p],color=colors[n], alpha=0.5,  linewidth=0.8,label='Perturbed Ensemble' if n == 0 else "" )
+            axes[1].plot(Time, y[1, :, p], color='blue', marker='o', markersize=2, label='Observations')
+
             axes[1].set_title('H_S_m', fontsize=15)
             axes[1].set_xlabel('Time', fontsize=12)
             axes[1].set_ylabel('Value', fontsize=12)
@@ -921,28 +938,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             )
             plt.close(fig)
 
-    return None
-
-    # -----------------------------------------------------------------------------------------------------------------
-    # -----------------------------------------------------------------------------------------------------------------
-    if data_assimilation == 1 and cal == 0:
-            output = data_settings["data"]["output_file"]
-
-            fieldnames_state = ["Swe_w", "Swe_d", "Rho_kg/m3", "albedo"]
-
-            plot_ensemble(meteo_inputs, inputs, Time, meteo_matrix, states, state_matrix_ensemble, state_vector,
-                          output_matrix_ensemble, outputs, tag, N, data_settings, output, fieldnames_state,
-                          hs)
-
-            # plot assimilation
-            plot_assimilation(states, Xa, state_vector, Xb_old, Xa_mean, output, outputs, output_matrix_old, output_a,
-                              output_a_mean, y, Time, fieldnames_state, data_settings, tag)
-
-            print(f" run done  in {time.time() - t_initial:.2f} seconds")
-            gc.collect()
-
-
-            return None
+        return  None
 
     # -----------------------------------------------------------------------------------------------------------------
     if cal == 0 and data_assimilation == 0:
@@ -960,8 +956,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             # if the df is empty fill with nan
             if df_1.empty:
                 y[:, y_p] = np.ones_like(y[:, y_p]) * np.nan
-                y_p += 1
-                continue
+
                 # if df len is less than nt-1 resample missing dates over 1 hour frequency and fill with nan
             else:
                 y[:, y_p] = df_1['Snow_depth_cm'] / 100
@@ -1104,7 +1099,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         print("Data assimilation with downscaled data not yet implemented")
 
     gc.collect()
-    return None
+
 # ----------------------------------------------------------------------------------------------------------------------
 # ----------------------------------------------------------------------------------------------------------------------
 

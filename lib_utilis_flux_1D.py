@@ -2,6 +2,7 @@ import math
 import numpy as np
 import pandas
 # import pdb
+from scipy.special import expit
 # -----------------------------------------------------
 # -----------------------------------------------------
 # Froidurot et. al 2014 PRECIPITATION-PHASE partitioning
@@ -30,7 +31,8 @@ def PhasePart(P, alpha, beta, gamma, T_air, RH, change_part):
 
     else:
         # sigmoid separation
-        SepCoeff = 1 / (1 + np.exp(alpha + (beta * T_air[mask_p]) + (gamma * RH[mask_p])))
+        x =np.exp(alpha + (beta * T_air[mask_p]) + (gamma * RH[mask_p]))
+        SepCoeff = 1 / (1 + expit(-x))
         Snowfall[mask_p] = (1 - SepCoeff) * P[mask_p]
         Rainfall[mask_p] = SepCoeff * P[mask_p]
 

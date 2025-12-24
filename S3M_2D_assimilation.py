@@ -27,7 +27,8 @@ def perturb_point(
     pert_asymm_prec,
     c_asymm_prec,
     L0,
-    L_tilde
+    L_tilde,
+    statistics_state
 ):
 
     """
@@ -84,18 +85,14 @@ def perturb_point(
     # transform to numpy array
     val_tilde = np.array(val_tilde)
 
-    # ----------------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------
     for p in range(m):
-        epsilon [:, p] = (val_tilde[:, p] - val_tilde[:, p].mean())
-
-    #key = keys[p]
-    #  - statistics[(p, p)]['statistics'][key]["median"]
-
-
+        key = keys[p]
+        epsilon [:, p] = (val_tilde[:, p] - statistics['statistics'][key]["mean"])
     epsilon*= inflat_deflat
-    # ----------------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------
     for v in range(m):
-        limits = statistics[(p, p)]['statistics'][keys[v]].copy()
+        limits = statistics['statistics'][keys[v]]
         if v in (1, 3):  # precipitation
             limits["min"] = 0
 
@@ -104,17 +101,12 @@ def perturb_point(
 
         if ep_min + meteo_inputs[v] < limits["min"]:
             mask = epsilon[:, v] < 0
-            epsilon[ mask, v] *= (
-                (meteo_inputs[v] - limits["min"]) / (-ep_min)
-            )
+            epsilon[ mask, v] *= ((meteo_inputs[v] - limits["min"]) / (-ep_min) )
 
         if ep_max + meteo_inputs[v] > limits["max"]:
             mask = epsilon[ :, v] > 0
-            epsilon[ mask, v] *= (
-                (limits["max"] - meteo_inputs[v]) / ep_max
-            )
-
-    # ----------------------------------------------------------------------------------
+            epsilon[ mask, v] *= ((limits["max"] - meteo_inputs[v]) / ep_max )
+    # ----------------------------------------------------------------------------
     for val in range(m):
          meteo_matrix[:, val] = meteo_inputs[val] + epsilon[:, val]
 
@@ -123,65 +115,54 @@ def perturb_point(
         meteo_matrix[ :, 1] = 0
 
     # ----------------------------------------------------------------------------------
-    epsilon_state = np.random.multivariate_normal(
-        np.zeros(len(state_vector)), R_state, N
-    )
 
+    epsilon_state = np.random.multivariate_normal(np.zeros(len(state_vector)), R_state, N)
+    keys = list(statistics_state['statistics'].keys())
+    # ----------------------------------------------------------------------------------
     for v in range(len(state_vector)):
-        ep_min = epsilon_state[ :, v].min()
-        ep_max = epsilon_state[ :, v].max()
+        ep_min = epsilon_state[:, v].min()
+        ep_max = epsilon_state[:, v].max()
+        limits = statistics_state['statistics'][keys[v]]
 
-        for i in range(N):
-            base = state_matrix_ensemble[ i, v]
+        base_min = state_matrix_ensemble[:, v].min()
+        base_max = state_matrix_ensemble[:, v].max()
 
-            if ep_min + base < state_limits[0][v]:
-                mask = epsilon_state[ :, v] < 0
-                epsilon_state[mask, v] *= (
-                    (base - state_limits[0][v]) / (-ep_min)
-                )
+        # lower bound
+        if ep_min + base_min < limits["min"]:
+            mask = epsilon_state[:, v] < 0
+            epsilon_state[mask, v] *= (
+                    (base_min - limits["min"]) / (-ep_min)
+            )
 
-            if ep_max + base > state_limits[1][v]:
-                mask = epsilon_state[:, v] > 0
-                epsilon_state[mask, v] *= (
-                    (state_limits[1][v] - base) / ep_max
-                )
+        # upper bound
+        if ep_max + base_max > limits["max"]:
+            mask = epsilon_state[:, v] > 0
+            epsilon_state[mask, v] *= (
+                    (limits["max"] - base_max) / ep_max
+            )
 
     state_matrix_ensemble += epsilon_state
 
     # ----------------------------------------------------------------------------------
-    if 0:
-        for i in range(N):
-            # density & albedo bounds
-            state_matrix_ensemble[i, 2] = np.clip(
-                state_matrix_ensemble[ i, 2],
-                state_limits[0][2],
-                state_limits[1][2],
-            )
+    output_matrix_ensemble[:, 10] = (
+    state_matrix_ensemble[:, 0] + state_matrix_ensemble[:, 1]
+    )
 
-            state_matrix_ensemble[ i, 3] = np.clip(
-                state_matrix_ensemble[ i, 3],
-                state_limits[0][3],
-                state_limits[1][3],
-            )
+    mask_output = output_matrix_ensemble[:, 10] <= 0
 
-            output_matrix_ensemble[ i, 0] = (
-                state_matrix_ensemble[i, 0]
-                + state_matrix_ensemble[ i, 1]
-            )
+    output_matrix_ensemble[mask_output, 0] = 0
+    output_matrix_ensemble[mask_output, 14] = 0
+    state_matrix_ensemble[mask_output, 2] = 0
+    state_matrix_ensemble[mask_output, 3] = 0.5
 
-            if output_matrix_ensemble[ i, 0] <= 0:
-                output_matrix_ensemble[ i, 0] = 0
-                output_matrix_ensemble[ i, 1] = 0
-                state_matrix_ensemble[ i, 2] = 0
-                state_matrix_ensemble[ i, 3] = 0.5
-            else:
-                output_matrix_ensemble[ i, 1] = (
-                    state_matrix_ensemble[ i, 0] / 997
-                    + state_matrix_ensemble[ i, 1]
-                    / state_matrix_ensemble[i, 2]
-                )
-
-    # ----------------------------------------------------------------------------------
+    # compute ONLY where valid
+    valid = ~mask_output
+    zero_density = valid & (state_matrix_ensemble[:, 2] == 0)
+    state_matrix_ensemble[zero_density, 2] = state_limits[0][2]
+    output_matrix_ensemble[valid, 14] = (
+    state_matrix_ensemble[valid, 0] / 997
+    + state_matrix_ensemble[valid, 1] / state_matrix_ensemble[valid, 2])
+        # ----------------------------------------------------------------------------------
     if  pert_prec == 0:
         meteo_matrix[:, 1] = meteo_inputs[1]
     if  pert_rad==0:
@@ -204,7 +185,7 @@ def perturb_point(
     return meteo_matrix, state_matrix_ensemble, output_matrix_ensemble, temporary_val
 
 
-def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,state_limits, R_measures, Xb_old, Xa_mean,Pa,output_a_mean,N):
+def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,state_limits, R_measures, Xb_old, Xa_mean,Pa,output_a_mean,N,statistics_state):
     """
     :param meteo_matrix: size (N, m)
     :param state_matrix:   size (N, n_state)
@@ -336,8 +317,10 @@ def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,sta
         if rho_calc_inv == 0 or np.isinf(rho_calc_inv):
             rho_calc_inv = 1 / parameters['RhoSnowMin']
 
-        d_alfa_swe = ((output_matrix[ n, 8] * meteo_matrix[ n, 3]) / (1000 * parameters[
+        d_alfa_swe = ((output_matrix[ n, 8] * meteo_matrix[ n, 3]) / (  1000*parameters[
             'RhoW'] * 0.334)) * parameters['dt']
+
+        #d_alfa_swe = ((output_matrix[ n, 8] * meteo_matrix[ n, 3] *(1-state_matrix[n,3])) / (1000 * parameters['RhoW'] * 0.334))
 
         if output_matrix[ n, 15] == 0:
             d_alfa_hs = d_alfa_swe / rho_obs
@@ -352,6 +335,7 @@ def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,sta
             Xa[ n, :] = Xb_old[n, :]
             output_a[n, 0] = output_matrix[ n, 10]
             output_a[ n, 1] = output_matrix[ n, 14]
+
             continue
 
         elif not np.isnan(y[0]) and not np.isnan(y[1]):
@@ -383,11 +367,13 @@ def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,sta
         M_tot = 0
         idx_scale = 0
         rescale = 0
+        keys = list(statistics_state['statistics'].keys())
 
         for k in range(2):
-            if Xa[n, k] < state_limits[0][k] or Xa[ n, k] > state_limits[1][k]:
+            limits = statistics_state['statistics'][keys[k]]
+            if Xa[n, k] < limits["min"] or Xa[ n, k] > limits["max"]:
                 rescale = 1
-                M = max(state_limits[0][k] - Xa[ n, k], Xa[n, k] - state_limits[1][k])
+                M = max(limits["min"] - Xa[ n, k], Xa[n, k] -limits["max"])
                 if M > M_tot:
                     M_tot = M
                     idx_scale = k
@@ -401,10 +387,13 @@ def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,sta
         if np.isnan(Xa[ n, :]).any():
             Xa[ n, :] = Xb_old[n, :]
         # --------------------------------------------------------------------------
-        Xa[ n, 2] = max(min(Xa[ n, 2], state_limits[1][2]), state_limits[0][2])
-        Xa[ n, 3] = max(min(Xa[ n, 3], state_limits[1][3]), state_limits[0][3])
+        output_a[n, 0] = Xa[n, 0] + Xa[n, 1]
 
-        output_a[ n, 0] = Xa[n, 0] + Xa[ n, 1]
+        Xa[ n, 2] = max(min(Xa[ n, 2], statistics_state['statistics'][keys[2]]["max"]), statistics_state['statistics'][keys[2]]["min"])
+        if output_a[ n, 0] > 0:
+             Xa[ n, 2] = max(min(Xa[ n, 2],state_limits[1][2]), state_limits[0][2])
+
+        Xa[ n, 3] = max(min(Xa[ n, 3], statistics_state['statistics'][keys[3]]["max"]), statistics_state['statistics'][keys[3]]["min"])
 
         if output_a[ n, 0] <= 0:
             output_a[ n, 0] = 0
@@ -413,6 +402,7 @@ def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,sta
             Xa[ n, 3] = 0.5
 
         else:
+
             output_a[n, 1] = (Xa[ n, 0] / 997) + (Xa[ n, 1] / Xa[ n, 2])
 
         # ------------------------------------------------------------------------------------------------------
@@ -421,6 +411,26 @@ def assimilation_point(meteo_matrix,state_matrix,output_matrix, y,parameters,sta
     Pa[ :, :] = np.cov(Xa[:, :], rowvar=False)
     output_a_mean [:] = np.mean(output_a[ :, :], axis=0)  # correct trajectory
 
+
+    if output_a_mean[0] <= 0:
+        output_a_mean[0] = 0
+        output_a_mean[1] = 0
+        Xa_mean[2] = 0
+        Xa_mean[3] = 0.5
+    else:
+        if Xa_mean[2] < state_limits[0][2]:
+            Xa_mean[2] = state_limits[0][2]
+        elif Xa_mean[2] > state_limits[1][2]:
+             Xa_mean[2] = state_limits[1][2]
+        if Xa_mean[3] < state_limits[0][3]:
+            Xa_mean[3] = state_limits[0][3]
+        elif Xa_mean[3] > state_limits[1][3]:
+            Xa_mean[3] = state_limits[1][3]
+
     # ------------------------------------------------------------------------------------------------------
     # -----------------------------------------------------------------------------------------------------
     return Xa_mean, Pa, output_a_mean, Xb_old
+
+
+
+

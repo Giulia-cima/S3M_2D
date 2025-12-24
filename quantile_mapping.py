@@ -365,6 +365,7 @@ def dataset_quantile_mapping():
 
 def R_state_matrix():
     R_dict_list = []
+    statistics_dict_list = []
     # Specify the file path
     file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/state_data_2018-10-01_2019-09-30.nc'
     # Load the NetCDF file
@@ -405,13 +406,18 @@ def R_state_matrix():
         data_df = data_df[(data_df["SWE_W_mm"] > -9999) & (data_df["SWE_D_mm"] > -9999) &
                             (data_df["RHO_D_kg_m3"] > -9999) & (data_df["albedo"] > -9999)]
 
-        # if  data_df is empty after removing invalid values, use the previous R matrix. do also in the case that data_df["SWE_W_mm"] is all zeros
+        # set values below 0 to 0 for SWE_W_mm and SWE_D_mm  to 0
+        data_df["SWE_W_mm"] = data_df["SWE_W_mm"].apply(lambda v: max(v, 0))
+        data_df["SWE_D_mm"] = data_df["SWE_D_mm"].apply(lambda v: max(v, 0))
+
+
         if data_df.empty or data_df["SWE_W_mm"].eq(0).all():
             nearest_key = closest_station(y, x, [entry["key"] for entry in R_dict_list])
             print(
                 f"DataFrame is empty after removing zero precipitation for station at lon: {x}, lat: {y}. Using previous R matrix.")
             # find the R matrix and statistics from the nearest station
             R_state_reconstructed = next(entry for entry in R_dict_list if entry["key"] == nearest_key)["R"]
+            statistics = next(entry for entry in statistics_dict_list if entry["key"] == nearest_key)
 
         else:
             # Compute the covariance matrix
@@ -419,14 +425,26 @@ def R_state_matrix():
             R_state_corr = data_df.corr()
             # Compute sigma values (square root of the diagonal of the covariance matrix)
             sigma = np.sqrt(np.diag(R_state))
+            R_state= R_state/(sigma[:, None] * sigma)
 
             # Build the reconstructed covariance matrix
             R_state_reconstructed = R_state_corr * (sigma[:, None] * sigma) ** 0.1
-            print( R_state_reconstructed)
+            print( R_state)
+            statistics = {
+                var: {
+                    "mean": float(np.nanmean(data_df[var])),
+                    "std": float(np.nanstd(data_df[var])),
+                    "min": float(np.nanmin(data_df[var])),
+                    "max": float(np.nanmax(data_df[var])),
+                }
+                for var in var
+            }
 
-        #print(R_state_reconstructed)
-        R_dict = {**{"R": R_state_reconstructed}, "key": (i, i)}
+        R_dict = {**{"R": R_state}, "key": (i, i)}
         R_dict_list.append(R_dict)
+        statistics_dict = {**statistics, "key": (i, i)}
+        statistics_dict_list.append(statistics_dict)
+
         i += 1
     # Create R dictionary using multindex as key
     R_dict = {entry["key"]: {
@@ -434,9 +452,22 @@ def R_state_matrix():
     }
         for entry in R_dict_list
     }
+
+    statistics_dict = {entry["key"]:
+            {
+        "statistics": entry
+    }
+        for entry in statistics_dict_list
+    }
+
+
     # Save output files
-    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2018-10-01_2019-09-30.pkl', 'wb') as f:
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2018-10-01 00:00:00_2019-09-30 23:00:00.pkl', 'wb') as f:
         pickle.dump(R_dict, f)
+
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_2018-10-01 00:00:00_2019-09-30 23:00:00.pkl', 'wb') as f:
+        pickle.dump(statistics_dict, f)
+
     return
 # -------------------------------------------------------------------------------------------------
 # -------------------------------------------------------------------------------------------------
@@ -742,6 +773,6 @@ def R_state_matrix_downscaled():
 if __name__ == "__main__":
     #downscaled_quantile_mapping()
     #stochastic_process()
-    dataset_quantile_mapping()
-    #R_state_matrix()
+    #dataset_quantile_mapping()
+    R_state_matrix()
 
