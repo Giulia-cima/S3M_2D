@@ -19,7 +19,8 @@ def solarpos(h, doy, lat, lon):
     cosaz = (np.cos(h * np.pi / 180) * np.cos(delta) * np.sin(lat * np.pi / 180) -
              np.sin(delta) * np.cos(lat * np.pi / 180)) / np.cos(el * np.pi / 180)
     az = 180 - (180 / np.pi * np.arccos(cosaz))
-    az = np.where(h > 12, 360 - az, az)
+    mask = h > 12
+    az = np.where(mask, 360 - az, az)
     return az, el  # azimuth and elevation
 
 def solar_radiation(h, doy, lat, lon):
@@ -37,18 +38,57 @@ def solarhours(lat, lon, doy):
     Input: day of year, latitude (vector), longitude (vector).
     Output: sunrise and sunset hours (2D arrays)."""
 
-    h = np.arange(24).reshape(-1, 1, 1) * np.ones((1, lat.size, lon.size))
-    # Compute the elevation and azimuth for each hour
-    az, el = solarpos(h, doy, lat, lon)
-    # Find the hour of sunrise and sunset
-    mask = el > 0  # Create a mask where elevation is positive
-    # Find the hour of sunrise and sunset for each (lat, lon) point
-    # if lat and lon are 1d vector
-    if lat.ndim == 1:
-        # Compute sunrise and sunset hours as 1D vectors
-        hrise = np.min(np.where(mask, h, np.inf))
-        hset = np.max(np.where(mask, h, -np.inf))
-    else:
-        hrise = np.min(np.where(mask, np.arange(24).reshape(-1, 1, 1), np.inf), axis=0)
-        hset = np.max(np.where(mask, np.arange(24).reshape(-1, 1, 1), -np.inf), axis=0)  # Sunset hour
+    # create an array of hours from 0 to 23
+    h = np.arange(0, 24, 1)
+    # compute the elevation and azimuth for each hour. az and el are two vector of 24 elements
+    az = np.zeros((24, len(lat)))
+    el = np.zeros((24, len(lat)))
+    # use a string comprehension to compute the azimuth and elevation for each hour. Unpack the two vectors
+
+    for i in range(len(h)):
+        az[i, :], el[i, :] = solarpos(h[i], doy, lat, lon)
+
+
+    hrise = np.full(len(lat), None)
+    hset = np.full(len(lat), None)
+
+    for i in range(len(lat)):
+        valid_hours = h[el[:, i] > 0]
+        if valid_hours.size > 0:
+            hrise[i] = np.min(valid_hours)
+            hset[i] = np.max(valid_hours)
+
+    return hrise, hset
+
+
+
+def solarhours2D(lat, lon, doy):
+    """
+    Compute sunrise and sunset hours per grid cell.
+    lat, lon: 2D arrays (ny, nx)
+    doy: scalar
+    Returns:
+        hrise, hset: 2D arrays (ny, nx)
+    """
+
+    h = np.arange(24)
+    nlat= lat.shape[0]
+
+    az = np.zeros((24, nlat, nlat))
+    el = np.zeros((24, nlat, nlat))
+
+    for i, hour in enumerate(h):
+        az[i, :, :], el[i, :, :] = solarpos(hour, doy, lat, lon)
+
+
+    hrise = np.full(len(lat), None)
+    hset = np.full(len(lat), None)
+
+    for i in range(len(lat)):
+        valid_hours = h[el[:,i,i] > 0]
+        if valid_hours.size > 0:
+            hrise[i] = np.min(valid_hours)
+            hset[i] = np.max(valid_hours)
+
+
     return hrise, hset

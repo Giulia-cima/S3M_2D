@@ -23,7 +23,7 @@
 # Library
 
 from lib_utilis_flux import PhasePart, density, melting, refreezing, Hydraulics, Sterrain
-from solar_radiation import solar_radiation, solarhours
+from solar_radiation import solar_radiation, solarhours2D
 import numpy as np
 from lib_utilis_data_proc import read_path
 
@@ -68,7 +68,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
         doy = Time.dayofyear
         lat_grid, lon_grid = np.meshgrid(lat, lon, indexing='ij', sparse=True)
         Rtoa = solar_radiation(h, doy, lat_grid, lon_grid)
-        hrise, hset = solarhours(lat_grid, lon_grid, doy)
+        hrise, hset = solarhours2D(lat_grid, lon_grid, doy)
         mask_hour = (hrise <= h) & (h <= hset)
         Radiation[mask_hour] = np.minimum(Rtoa[mask_hour] , Radiation[mask_hour] )
         Radiation[~mask_hour] = 0.0
@@ -76,8 +76,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     # Sanity check
     mask_sanity = output_vector[ :, :,  10] < 0.01
     state_vector[mask_sanity, :-1] = 0
-    state_vector[mask_sanity, 3] = 0.5
-    output_vector[mask_sanity, 10:] = 0
+    output_vector[mask_sanity, 11:] = 0
     # ------------------------------------------------------------------------------------------------------------------
     if IceMassBalance == 1 or IceMassBalance == 2:
          IceThickness_WE = Ice_thickness*917
@@ -373,8 +372,7 @@ def S3M_2D_physics(meteo, parameters, state_vector, output_vector, Time, change_
     state_vector_new[mask, 0] = 0
     state_vector_new[mask, 1] = 0
     state_vector_new[mask, 2] = 0
-    state_vector_new[mask, 3] = 0.5
-    output_vector_new[mask, 10:] = 0
+    output_vector_new[mask, 11:] = 0
 
 
 

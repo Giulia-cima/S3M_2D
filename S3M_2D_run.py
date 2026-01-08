@@ -58,9 +58,8 @@ from lib_data_io_json import read_file_settings
 from S3M_2D_physics import S3M_2D_physics
 from lib_utilis_data_proc import get_args, rmse
 from bayes_opt import BayesianOptimization
-from PLOTS_S3M import process_and_plot_snow_data, plot_ensemble, plot_meteo_ensemble
+from PLOTS_S3M import process_and_plot_snow_data
 from S3M_2D_assimilation import perturb_point,assimilation_point
-from S3M1DTEST import plot_ensemble, plot_assimilation
 from joblib import Parallel, delayed
 from S3M_1D_physics import S3M_1D_physics_points
 import matplotlib.pyplot as plt
@@ -434,10 +433,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         meteo_ds = ds[["AirTemperature", "IncRadiation", "Rain", "RelHumidity"]]
         Time = pandas.date_range(start=start_datetime, end= end_datetime , freq='h')
         meteo_ds = meteo_ds.sel(time=slice(start_datetime, end_datetime))
-        #start_datetime = "2019-01-15 00:00:00"
-        #end_datetime = "2019-01-31  00:00:00"
-        #Time = pandas.date_range(start=start_datetime, end= end_datetime , freq='h')
-        #meteo_ds = meteo_ds.sel(time=slice(start_datetime, end_datetime))
         nx_meteo, ny_meteo = len(meteo_ds.lon), len(meteo_ds.lat)
         if nx_meteo != nx or ny_meteo != ny:
             Latitudes_1d = np.unique(meteo_ds.lat)
@@ -560,6 +555,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
             # --------------------------------------------------------------------------------------------------------------------------
             # CREATE OBSERVATION VECTOR
+            time_index = pandas.date_range(start=start_datetime, end=end_datetime, freq='h')
             obs_mask = pandas.read_pickle(obs_mask)
             ys, xs = zip(*obs_mask)
             lat = list(ys)
@@ -596,7 +592,12 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                         y[:, y_p] = np.ones_like(y[:, y_p]) * np.nan
 
                     else:
-                        y[:, y_p] = df_1['Snow_depth_cm'] / 100
+                        try:
+                            y[:, y_p] = df_1['Snow_depth_cm'] / 100
+                        except:
+                            # fill missing values with nan to have the same length of df_1 and nt
+                            df_1 = df_1.reindex(time_index)
+                            y[:, y_p] = df_1['Snow_depth_cm'] / 100
 
                     y_p += 1
 
@@ -623,11 +624,13 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             temporary_val = np.zeros((nt, N, m,n_obs))
             output_matrix_old = np.zeros((nt, N, y.shape[0],n_obs))
             output_a_mean = np.zeros((nt, y.shape[0],n_obs))
-            Xb_old = np.zeros((nt, N, len(state_vector),n_obs))
+            Xb = np.zeros((nt, N, len(state_vector),n_obs))
             Xa_mean = np.zeros((nt, len(state_vector),n_obs))
-            Pa = np.zeros((nt, len(state_vector), len(state_vector),n_obs))
+            Pa = np.zeros((nt, N,N, n_obs))
             keys = list(statistics[(18, 18)]['statistics'].keys())
             N = int(N)
+            B = np.zeros((nt,n_obs, len(state_vector), len(state_vector)))
+
 
             # drop "key" if present
             if "key" in keys:
@@ -673,7 +676,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                     R_dict[(point, point)]["R"].values,
                     R_state[(point, point)]["R"].values,
                     state_limits,
-                    state_vector,
                     pert_prec,
                     pert_rad,
                     pert_temp,
@@ -682,9 +684,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                     pert_asymm_prec,
                     c_asymm_prec,
                     L0,
-                    L_tilde,
-                statistics_state[(point,point)]
-                )
+                    L_tilde,statistics_state[(point,point)] )
                 for point  in range(0,n_obs)
             )
 
@@ -724,39 +724,43 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
             output_matrix_old[j, :, 0, :] = output_matrix_ensemble[j, :, 10, :]
             output_matrix_old[j, :, 1, :] = output_matrix_ensemble[j, :, 14, :]
+            Xb[j, :, :, :] = state_matrix_ensemble[j, :, :, :]
+
             # ------------------------------------------------------------------------------------------------------------------
             # ------------------------------------------------------------------------------------------------------
+
             # ASSIMILATION STEP
             result = Parallel(n_jobs=25)(delayed(assimilation_point)(meteo_matrix[j, :, :, p],  state_matrix_ensemble[j, :, :, p],  output_matrix_ensemble[j, :, :, p], y[:, j, p], parameters,
-                                   state_limits, R_measures, Xb_old[j, :, :, p],  Xa_mean[j, :, p], Pa[j, :, :, p], output_a_mean[j, :, p], N,statistics_state[(p,p)])
-                                             for p in range(0,n_obs))
-            # Unpack results
-            for p, (Xa_mean_p, Pa_p, output_a_mean_p, Xb_old_p) in enumerate(result):
-                Xa_mean[j, :, p] = Xa_mean_p
-                Pa[j, :, :, p] = Pa_p
-                output_a_mean[j, :, p] = output_a_mean_p
-                Xb_old[j, :, :, p] = Xb_old_p
-            # -----------------------------------------------------------------------------------------------------------------
-             # update state
-            for i in range(N):
-                state_matrix_ensemble[j, i, :, :] = Xa_mean[j, :, :]
-                output_matrix_ensemble[j, i, 10, :] = output_a_mean[j, 0, :]
-                output_matrix_ensemble[j, i, 14, :] = output_a_mean[j, 1, :]
+                                                                     state_limits, R_measures,  N,statistics_state[(p,p)]) for p in range(0,n_obs))
 
+            # Unpack results
+            for p, (Xa_p, output_a_p) in enumerate(result):
+
+                state_matrix_ensemble[j, :, :, p] = Xa_p
+                output_matrix_ensemble[j, :, 10, p] = output_a_p[:,0]
+                output_matrix_ensemble[j, :, 14, p] = output_a_p[:,1]
+
+                Xa_mean[j, :, p] = np.mean(state_matrix_ensemble[j, :, :, p], axis=0)
+                Pa [j, :, :, p] = np.cov(Xa_p)
+                output_a_mean[j,0,p] = np.mean(output_matrix_ensemble[j, :, 10, p], axis=0)
+                output_a_mean[j,1, p] = np.mean(output_matrix_ensemble[j, :, 14, p], axis=0)
+
+        # ------------------------------------------------------------------------------------------------------------------
+        # --------------# PLOTTING FOR A SINGLE POINT THE RESULTS OF THE ASSIMILATION------------------------
         if 1:
             val_x = values['val_x']
             val_x.append(val_x[-1] + 1)
 
             new_values = {
-                    'val_swe_a': output_a_mean[j, 0, 7] ,
-                    'val_swe_b': output_matrix_old[j, 0, 0, 7],
-                    'val_swe_b1' : output_matrix_old[j, 1, 0, 7],
-                    'val_swe_open': output_vector_point[j, 10, 7],
-                    'val_hs_a': output_a_mean[j, 1, 7],
-                    'val_hs_b': output_matrix_old[j, 0, 1, 7],
-                    'val_hs_b1' : output_matrix_old[j, 1, 1, 7],
-                    'val_hs_open': output_vector_point[j, 14, 7],
-                    'val_hs_obs': y[1, j, 7]
+                    'val_swe_a': output_a_mean[j, 0, 20] ,
+                    'val_swe_b': output_matrix_old[j, 0, 0, 20],
+                    'val_swe_b1' : output_matrix_old[j, 1, 0, 20],
+                    'val_swe_open': output_vector_point[j, 10, 20],
+                    'val_hs_a': output_a_mean[j, 1, 20],
+                    'val_hs_b': output_matrix_old[j, 0, 1, 20],
+                    'val_hs_b1' : output_matrix_old[j, 1, 1, 20],
+                    'val_hs_open': output_vector_point[j, 14, 20],
+                    'val_hs_obs': y[1, j, 20]
                 }
 
 
@@ -781,11 +785,12 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             axs[1].plot(val_x, values['val_hs_b'], label='background', color='lightgrey')
             axs[1].plot(val_x, values['val_hs_b1'],label='background', color='lightgreen')
             axs[1].plot(val_x, values['val_hs_open'], label='open loop', color='k')
-            axs[1].plot(val_x, values['val_hs_obs'],label='obs', color='red',marker='o', linestyle='None', markersize=0.5)
+            axs[1].plot(val_x, values['val_hs_obs'],label='obs', color='red',marker='o', linestyle='None', markersize=2)
             axs[1].legend()
 
             folder = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plot_update/"
-            plt.savefig(os.path.join(folder, f'assimilation_point_{j}.png'))
+            if  j % 100 == 0:
+                plt.savefig(os.path.join(folder, f'assimilation_point_{j}.png'))
 
             #Step 6 interpolate back the correction to full grid with Gausssian processes
             # to be done
@@ -794,8 +799,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         # --------------------------------------------------------------------------------------------------------------------------
     # TRACE TIME
     print(f"Total run done in {time.time() - t_start:.2f} seconds")
-
-
     # -----------------------------------------------------------------------------------------------------------------
     # -----------------------------------------------------------------------------------------------------------------
     if data_assimilation == 1 and cal == 0:
@@ -938,11 +941,88 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             )
             plt.close(fig)
 
+
+        # Save the state
+        ds_state_prior = xr.Dataset(
+            {
+                "SWE_W_mm": xr.DataArray(Xb[:, :, 0, :] , dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "SWE_D_mm": xr.DataArray(Xb[:, :, 1,:], dims=["time","ensemble","point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N), "point": np.arange(n_obs) }),
+                "RHO_D_kg_m3": xr.DataArray(Xb[:, :, 2,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N), "point": np.arange(n_obs) }),
+                "albedo": xr.DataArray(Xb[:, :, 3,:], dims=["time","ensemble","point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N), "point": np.arange(n_obs) }),
+
+            }
+        )
+        # Save the state to NetCDF
+        state_prior = os.path.join(data_settings['data']['output_file']['folder_name'], f"state_data_prior_{start}_{end}.nc")
+        ds_state_prior.to_netcdf(state_prior, engine='h5netcdf')
+        print(f"State data saved to {state_prior}")
+
+        # save the state post assimilation Xa_mean
+
+        ds_state_post = xr.Dataset(
+            {
+                "SWE_W_mm": xr.DataArray(Xa_mean[:, 0, :], dims=["time", "point" ],
+                                            coords={"time": Time ,"point": np.arange(n_obs) }),
+                "SWE_D_mm": xr.DataArray(Xa_mean[:, 1, :], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "RHO_D_kg_m3": xr.DataArray(Xa_mean[:, 2, :], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "albedo": xr.DataArray(Xa_mean[:, 3, :],  dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+
+            }
+        )
+        # Save the state to NetCDF
+        state_post = os.path.join(data_settings['data']['output_file']['folder_name'], f"state_data_post_{start}_{end}.nc")
+        ds_state_post.to_netcdf(state_post, engine='h5netcdf')
+        print(f"State data saved to {state_post}")
+
+        var = ["Rainfall_mm", "Snowfall_mm", "Melting_mm", "Refreezing_mm", "Outflow_mm", "Sf_daily_cum",
+                "SWE_mm", "Snow_Age", "H_D_m", "Theta_w", "H_S_m", "Rho_S_kg_m3"]
+
+        ds_output = xr.Dataset(
+            {
+                "Rainfall_mm": xr.DataArray(output_matrix_ensemble[:, :,  0,:],  dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Snowfall_mm": xr.DataArray(output_matrix_ensemble[:, :, 1,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Melting_mm": xr.DataArray(output_matrix_ensemble[:, :, 2,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Refreezing_mm": xr.DataArray(output_matrix_ensemble[:, :, 3,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Outflow_mm": xr.DataArray(output_matrix_ensemble[:, :, 4,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Sf_daily_cum": xr.DataArray(output_matrix_ensemble[:, :, 5,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "SWE_mm": xr.DataArray(output_matrix_ensemble[:, :, 10,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Snow_Age": xr.DataArray(output_matrix_ensemble[:, :, 11,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "H_D_m": xr.DataArray(output_matrix_ensemble[:, :, 12,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Theta_w": xr.DataArray(output_matrix_ensemble[:, :, 13,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "H_S_m": xr.DataArray(output_matrix_ensemble[:, :, 14,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Rho_S_kg_m3": xr.DataArray(output_matrix_ensemble[:, :, 15,:], dims=["time","ensemble", "point" ],
+                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+
+            }
+        )
+        # Save the dataset to NetCDF
+        output_ensemble = os.path.join(data_settings['data']['output_file']['folder_name'], f"output_ensemble_{start}_{end}.nc")
+        ds_output.to_netcdf(output_ensemble, engine='h5netcdf')
+        print(f"Output ensemble data saved to {output_ensemble}")
+
         return  None
 
     # -----------------------------------------------------------------------------------------------------------------
     if cal == 0 and data_assimilation == 0:
-
+        time_index = pandas.date_range(start=start_datetime, end=end_datetime, freq='H')
         obs = pandas.read_pickle(obs)
         y_p = 0
         y = np.zeros((nt, 43))
@@ -959,7 +1039,12 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
                 # if df len is less than nt-1 resample missing dates over 1 hour frequency and fill with nan
             else:
-                y[:, y_p] = df_1['Snow_depth_cm'] / 100
+                try:
+                    y[:, y_p] = df_1['Snow_depth_cm'] / 100
+                except:
+                    # fill missing values with nan to have the same length of df_1 and nt
+                    df_1 = df_1.reindex(time_index)
+                    y[:, y_p] = df_1['Snow_depth_cm'] / 100
 
             y_p += 1
 
@@ -1138,7 +1223,7 @@ if __name__ == "__main__":
     results = []
     if calibrate == 0 and data_assimilation == 0:
         # Define the time slices
-        slice_list = [ ("2018-10-01", "2019-09-30")]
+        slice_list = [ ("2015-10-01", "2018-09-30")]
         for slice_start, slice_end in slice_list:
 
             mrad, mr, window_melting,alpha, lat, lon,values = [], [], [], [], [],[],[]

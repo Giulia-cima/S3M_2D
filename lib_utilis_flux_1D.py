@@ -1,12 +1,12 @@
-import math
 import numpy as np
 import pandas
-# import pdb
-from scipy.special import expit
+import rasterio
+import scipy.special as sp
+
+
 # -----------------------------------------------------
 # -----------------------------------------------------
 # Froidurot et. al 2014 PRECIPITATION-PHASE partitioning
-
 def PhasePart(P, alpha, beta, gamma, T_air, RH, change_part):
     """
     Vectorized computation of snowfall and rainfall.
@@ -31,8 +31,7 @@ def PhasePart(P, alpha, beta, gamma, T_air, RH, change_part):
 
     else:
         # sigmoid separation
-        x =np.exp(alpha + (beta * T_air[mask_p]) + (gamma * RH[mask_p]))
-        SepCoeff = 1 / (1 + expit(-x))
+        SepCoeff = 1 / (1 + np.exp(alpha + (beta * T_air[mask_p]) + (gamma * RH[mask_p])))
         Snowfall[mask_p] = (1 - SepCoeff) * P[mask_p]
         Rainfall[mask_p] = SepCoeff * P[mask_p]
 
@@ -41,9 +40,10 @@ def PhasePart(P, alpha, beta, gamma, T_air, RH, change_part):
     Rainfall[Rainfall < 0.01] = 0
 
     return Snowfall, Rainfall
-# -----------------------------------------------------
-# -----------------------------------------------------
 
+
+# -----------------------------------------------------
+# -----------------------------------------------------
 
 def density(Rho_D_min, Rho_D_max, Rho_S_max, RhoW, dt, state_vector, output_vector, SWE_D, Snowfall, T_air):
     """
@@ -160,10 +160,10 @@ def Hydraulics(Rho_D, RhoW, SWE_D, SWE_W, H_D, dt):
     H_S[cond3] = 0
     Sr[cond3] = 0
 
+    # Irreducible saturation and effective saturation
     mask_porosity = Porosity > 0
     Sr_irr = np.zeros_like(Rho_D, dtype=float)
     Sr_irr[mask_porosity] = 0.02 * ((Rho_D[mask_porosity] / RhoW) / Porosity[mask_porosity])
-
     Sr_star = np.where(Porosity > 0, (Sr - Sr_irr) / (1 - Sr_irr), 0)
 
     # --- SSA, r_e, permeability, conductivity ---
@@ -343,6 +343,7 @@ def snow_age(As, ref_time, SWE, Sf_daily_cum):
     return As, Sf_daily_cum
 
 
+
 # -----------------------------------------------------
 # ----------------------------------------------------
 
@@ -362,7 +363,7 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_
 
     Returns:
     - albedo_new         : 2D array of updated albedo
-    """
+     """
     # Ensure ref_time is a pandas.Timestamp
     if isinstance(ref_time, np.ndarray):
         ref_time = pandas.to_datetime(ref_time)
@@ -377,21 +378,41 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_
 
         # --- WET condition (Ta > 0°C) ---
         wet_mask = T_albedo > 0
-        albedo_old_flat = albedo_old.ravel()
 
         if np.any(wet_mask):
-            diff = np.abs(albedo_pivot_wet[:, None] - albedo_old_flat[None, :])
+            diff = np.abs(albedo_pivot_wet[:, None, None] - albedo_old)
             idx = np.argmin(diff, axis=0)
             next_idx = np.minimum(idx + 1, len(albedo_pivot_wet) - 1)
-            albedo[wet_mask] = albedo_pivot_wet[next_idx[wet_mask]]
+
+            # Flatten arrays for proper indexing
+            flat_wet_mask = wet_mask.flatten()
+            flat_next_idx = next_idx.flatten()
+            flat_albedo = albedo.flatten()
+
+            # Update albedo for wet conditions
+            flat_albedo[flat_wet_mask] = albedo_pivot_wet[flat_next_idx[flat_wet_mask]]
+
+            # Reshape albedo back to its original shape
+            albedo = flat_albedo.reshape(albedo.shape)
 
         # --- DRY condition (Ta ≤ 0°C) ---
         dry_mask = T_albedo <= 0
+
         if np.any(dry_mask):
-            diff = np.abs(albedo_pivot_dry[:, None] - albedo_old_flat[None, :])
+            diff = np.abs(albedo_pivot_dry[:, None, None] - albedo_old)
             idx = np.argmin(diff, axis=0)
             next_idx = np.minimum(idx + 1, len(albedo_pivot_dry) - 1)
-            albedo[dry_mask] = albedo_pivot_dry[next_idx[dry_mask]]
+
+            # Flatten arrays for proper indexing
+            flat_dry_mask = dry_mask.flatten()
+            flat_next_idx = next_idx.flatten()
+            flat_albedo = albedo.flatten()
+
+            # Update albedo for dry conditions
+            flat_albedo[flat_dry_mask] = albedo_pivot_dry[flat_next_idx[flat_dry_mask]]
+
+            # Reshape albedo back to its original shape
+            albedo = flat_albedo.reshape(albedo.shape)
 
         # --- Boundary conditions ---
         albedo = np.clip(albedo, 0.5, 0.95)
@@ -399,43 +420,11 @@ def alb(As, albedo, T_albedo, ref_time, multiplicative_term, Ice_thickness, Ice_
         # --- New snow condition (Age = 0) ---
         new_snow_mask = As == 0
         albedo[new_snow_mask] = 0.95
-
     return albedo
 
 
-"""
-def alb(As, albedo, T_albedo, ref_time, multiplicative_term,Ice_thickness,Ice_flag):
 
-        Update albedo based on snow age and daily mean temperature.
 
-        Parameters:
-        - As                 : 2D array of snow age (days)
-        - albedo             : 2D array of current albedo
-        - T_albedo           : 2D array of daily mean temperature (°C)
-        - ref_time           : datetime.datetime object
-        - multiplicative_term: scalar or 2D array (adjustment coefficient)
-
-        Returns:
-        - albedo_new         : 2D array of updated albedo
-
-    # Ensure ref_time is a pandas.Timestamp
-    if isinstance(ref_time, np.ndarray):
-        ref_time = pandas.to_datetime(ref_time)
-
-    if ref_time.hour == 23:
-
-        albedo[As==0] = 0.95
-        mask_1 = (As >0) & (T_albedo > 0)
-        mask_2 =  (As >0) & (T_albedo < 0)
-
-        albedo[mask_1] = albedo[mask_1]  - (((0.12 + As[mask_1] ) / 24) * 0.45 * np.exp(-0.12 * As[mask_1]))
-        albedo[mask_2] =albedo[mask_2]  - (((0.05 + As[mask_2] ) / 24) * 0.45 * np.exp(-0.05 * As[mask_2]))
-
-        # clip albedo between o.5 and 0.95
-        albedo = np.clip(albedo, 0.5, 0.95)
-
-    return  albedo
-"""
 
 
 # -----------------------------------------------------
@@ -534,3 +523,4 @@ def GlacierDeltaH(dt, Rows, Cols, iRows_Pivot, IceThickness_WE, MeltingGCumWY, M
 
 # -----------------------------------------------------
 # -----------------------------------------------------
+

@@ -116,11 +116,15 @@ def dataset_quantile_mapping():
     t0 = time.time()
     quantile_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/"
     os.makedirs(quantile_path, exist_ok=True)
-    meteo_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/S3M_MeteoData_20181001_20190930.nc"
+    meteo_path = "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/S3M_MeteoData_20071001_20240930.nc"
     # Open the dataset
     ds = xr.open_dataset(meteo_path)
     # Define the time slices
-    slice_list = [("2018-10-01 00:00:00", "2019-09-30 23:00:00")]
+    start ="2015-10-01 00:00:00"
+    end = "2018-09-30 23:00:00"
+    # slice the ds
+    ds = ds.sel(time=slice(start, end))
+    slice_list = [(start, end)]
     quantile_data_list = []
     R_dict_list = []
     statistics_dict_list = []
@@ -367,7 +371,7 @@ def R_state_matrix():
     R_dict_list = []
     statistics_dict_list = []
     # Specify the file path
-    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/state_data_2018-10-01_2019-09-30.nc'
+    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/Open_loop_2015_2018/state_data_2015-10-01_2018-09-30.nc'
     # Load the NetCDF file
     data = xr.open_dataset(file_path)
     station_list = pandas.read_csv('/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/STATION_ID_VDA.csv')
@@ -424,12 +428,17 @@ def R_state_matrix():
             R_state = data_df.cov()
             R_state_corr = data_df.corr()
             # Compute sigma values (square root of the diagonal of the covariance matrix)
+
             sigma = np.sqrt(np.diag(R_state))
-            R_state= R_state/(sigma[:, None] * sigma)
 
             # Build the reconstructed covariance matrix
             R_state_reconstructed = R_state_corr * (sigma[:, None] * sigma) ** 0.1
-            print( R_state)
+
+            #R_state_reconstructed= R_state_corr
+
+            # Build the reconstructed covariance matrix
+           # R_state_reconstructed = R_state_corr * (sigma[:, None] * sigma) ** 0.1
+            print( R_state_reconstructed)
             statistics = {
                 var: {
                     "mean": float(np.nanmean(data_df[var])),
@@ -440,11 +449,10 @@ def R_state_matrix():
                 for var in var
             }
 
-        R_dict = {**{"R": R_state}, "key": (i, i)}
+        R_dict = {**{"R": R_state_reconstructed}, "key": (i, i)}
         R_dict_list.append(R_dict)
         statistics_dict = {**statistics, "key": (i, i)}
         statistics_dict_list.append(statistics_dict)
-
         i += 1
     # Create R dictionary using multindex as key
     R_dict = {entry["key"]: {
@@ -462,10 +470,10 @@ def R_state_matrix():
 
 
     # Save output files
-    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2018-10-01 00:00:00_2019-09-30 23:00:00.pkl', 'wb') as f:
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2015-10-01 00:00:00_2018-09-30 23:00:00.pkl', 'wb') as f:
         pickle.dump(R_dict, f)
 
-    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_2018-10-01 00:00:00_2019-09-30 23:00:00.pkl', 'wb') as f:
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_2015-10-01 00:00:00_2018-09-30 23:00:00.pkl', 'wb') as f:
         pickle.dump(statistics_dict, f)
 
     return
@@ -773,6 +781,6 @@ def R_state_matrix_downscaled():
 if __name__ == "__main__":
     #downscaled_quantile_mapping()
     #stochastic_process()
-    #dataset_quantile_mapping()
+    dataset_quantile_mapping()
     R_state_matrix()
 
