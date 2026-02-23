@@ -626,11 +626,8 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             output_a_mean = np.zeros((nt, y.shape[0],n_obs))
             Xb = np.zeros((nt, N, len(state_vector),n_obs))
             Xa_mean = np.zeros((nt, len(state_vector),n_obs))
-            Pa = np.zeros((nt, N,N, n_obs))
             keys = list(statistics[(18, 18)]['statistics'].keys())
             N = int(N)
-            B = np.zeros((nt,n_obs, len(state_vector), len(state_vector)))
-
 
             # drop "key" if present
             if "key" in keys:
@@ -741,13 +738,13 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
                 output_matrix_ensemble[j, :, 14, p] = output_a_p[:,1]
 
                 Xa_mean[j, :, p] = np.mean(state_matrix_ensemble[j, :, :, p], axis=0)
-                Pa [j, :, :, p] = np.cov(Xa_p)
                 output_a_mean[j,0,p] = np.mean(output_matrix_ensemble[j, :, 10, p], axis=0)
                 output_a_mean[j,1, p] = np.mean(output_matrix_ensemble[j, :, 14, p], axis=0)
 
         # ------------------------------------------------------------------------------------------------------------------
         # --------------# PLOTTING FOR A SINGLE POINT THE RESULTS OF THE ASSIMILATION------------------------
         if 1:
+
             val_x = values['val_x']
             val_x.append(val_x[-1] + 1)
 
@@ -788,21 +785,117 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             axs[1].plot(val_x, values['val_hs_obs'],label='obs', color='red',marker='o', linestyle='None', markersize=2)
             axs[1].legend()
 
-            folder = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plot_update/"
-            if  j % 100 == 0:
+            if j % 8760 == 0:
+                folder = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plot_update/"
                 plt.savefig(os.path.join(folder, f'assimilation_point_{j}.png'))
 
-            #Step 6 interpolate back the correction to full grid with Gausssian processes
-            # to be done
+                # Save the state open loop
+                # slice till the run time
+            if j % 8760 == 0 and j > 0 :
+                    ds_state_prior = xr.Dataset(
+                        {
+                            "SWE_W_mm": xr.DataArray(state_vector_point[:j, 0, :], dims=["time", "point"],
+                                                     coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "SWE_D_mm": xr.DataArray(state_vector_point[:j, 1, :], dims=["time", "point"],
+                                                     coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "RHO_D_kg_m3": xr.DataArray(state_vector_point[:j, 2, :], dims=["time", "point"],
+                                                        coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "albedo": xr.DataArray(state_vector_point[:j, 3, :], dims=["time", "point"],
+                                                   coords={"time": Time[:j], "point": np.arange(n_obs)}),
+
+                        }
+                    )
+                    # Save the state to NetCDF
+                    state_prior = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                               f"state_data_prior_till_{j}.nc")
+                    ds_state_prior.to_netcdf(state_prior, engine='h5netcdf')
+                    print(f"State data saved to {state_prior}")
+
+                    # save the state post assimilation Xa_mean
+                    ds_state_post = xr.Dataset(
+                        {
+                            "SWE_W_mm": xr.DataArray(Xa_mean[:j, 0, :], dims=["time", "point"],
+                                                     coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "SWE_D_mm": xr.DataArray(Xa_mean[:j, 1, :], dims=["time", "point"],
+                                                     coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "RHO_D_kg_m3": xr.DataArray(Xa_mean[:j, 2, :], dims=["time", "point"],
+                                                        coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "albedo": xr.DataArray(Xa_mean[:j, 3, :], dims=["time", "point"],
+                                                   coords={"time": Time[:j], "point": np.arange(n_obs)}),
+
+                        }
+                    )
+                    # Save the state to NetCDF
+                    state_post = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                              f"state_data_post_till_{j}.nc")
+                    ds_state_post.to_netcdf(state_post, engine='h5netcdf')
+                    print(f"State data saved to {state_post}")
+
+                    ds_output = xr.Dataset(
+                        {
+                            "Rainfall_mm": xr.DataArray(output_vector_point[:j, 0, :], dims=["time", "point"],
+                                                        coords={"time": Time[:j],
+                                                                "point": np.arange(n_obs)}),
+                            "Snowfall_mm": xr.DataArray(output_vector_point[:j, 1, :], dims=["time", "point"],
+                                                        coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Melting_mm": xr.DataArray(output_vector_point[:j, 2, :], dims=["time", "point"],
+                                                       coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Refreezing_mm": xr.DataArray(output_vector_point[:j, 3, :], dims=["time", "point"],
+                                                          coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Outflow_mm": xr.DataArray(output_vector_point[:j, 4, :], dims=["time", "point"],
+                                                       coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Sf_daily_cum": xr.DataArray(output_vector_point[:j, 5, :], dims=["time", "point"],
+                                                         coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "SWE_mm": xr.DataArray(output_vector_point[:j, 10, :], dims=["time", "point"],
+                                                   coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Snow_Age": xr.DataArray(output_vector_point[:j, 11, :], dims=["time", "point"],
+                                                     coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "H_D_m": xr.DataArray(output_vector_point[:j, 12, :], dims=["time", "point"],
+                                                  coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Theta_w": xr.DataArray(output_vector_point[:j, 13, :], dims=["time", "point"],
+                                                    coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "H_S_m": xr.DataArray(output_vector_point[:j, 14, :], dims=["time", "point"],
+                                                  coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "Rho_S_kg_m3": xr.DataArray(output_vector_point[:j, 15, :], dims=["time", "point"],
+                                                        coords={"time": Time[:j], "point": np.arange(n_obs)}),
+
+                        }
+                    )
+                    # Save the dataset to NetCDF
+                    output_prior = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                                f"output_prior_till_{j}.nc")
+                    ds_output.to_netcdf(output_prior, engine='h5netcdf')
+                    print(f"Output ensemble data saved to {output_prior}")
+
+                    # save the post assimilation output_a_mean, ONLY SWE and HS
+                    ds_output_post = xr.Dataset(
+                        {
+                            "SWE_mm": xr.DataArray(output_a_mean[:j, 0, :], dims=["time", "point"],
+                                                   coords={"time": Time[:j], "point": np.arange(n_obs)}),
+                            "H_S_m": xr.DataArray(output_a_mean[:j, 1, :], dims=["time", "point"],
+                                                  coords={"time": Time[:j], "point": np.arange(n_obs)}),
+
+                        }
+                    )
+
+                    # Save the dataset to NetCDF
+                    output_post = os.path.join(data_settings['data']['output_file']['folder_name'],
+                                               f"output_post_till_{j}.nc")
+                    ds_output_post.to_netcdf(output_post, engine='h5netcdf')
+                    print(f"Output data saved to {output_post}")
+
+
 
         print(f"Run for time step {j} done in {time.time() - t0:.2f} seconds")
+        gc.collect()
         # --------------------------------------------------------------------------------------------------------------------------
     # TRACE TIME
     print(f"Total run done in {time.time() - t_start:.2f} seconds")
+    gc.collect()
+
     # -----------------------------------------------------------------------------------------------------------------
     # -----------------------------------------------------------------------------------------------------------------
     if data_assimilation == 1 and cal == 0:
-
         p = 0
         n = 0
         for p in range(0, n_obs):
@@ -941,18 +1034,17 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             )
             plt.close(fig)
 
-
-        # Save the state
+        # Save the state open loop
         ds_state_prior = xr.Dataset(
             {
-                "SWE_W_mm": xr.DataArray(Xb[:, :, 0, :] , dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "SWE_D_mm": xr.DataArray(Xb[:, :, 1,:], dims=["time","ensemble","point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N), "point": np.arange(n_obs) }),
-                "RHO_D_kg_m3": xr.DataArray(Xb[:, :, 2,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N), "point": np.arange(n_obs) }),
-                "albedo": xr.DataArray(Xb[:, :, 3,:], dims=["time","ensemble","point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N), "point": np.arange(n_obs) }),
+                "SWE_W_mm": xr.DataArray(state_vector_point[ :, 0, :] , dims=["time", "point" ],
+                                            coords={"time": Time ,"point": np.arange(n_obs) }),
+                "SWE_D_mm": xr.DataArray(state_vector_point[ :, 1,:], dims=["time","point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "RHO_D_kg_m3": xr.DataArray(state_vector_point[ :, 2,:], dims=["time","point" ],
+                                            coords={"time": Time ,  "point": np.arange(n_obs) }),
+                "albedo": xr.DataArray(state_vector_point[ :, 3,:], dims=["time","point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
 
             }
         )
@@ -962,7 +1054,6 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         print(f"State data saved to {state_prior}")
 
         # save the state post assimilation Xa_mean
-
         ds_state_post = xr.Dataset(
             {
                 "SWE_W_mm": xr.DataArray(Xa_mean[:, 0, :], dims=["time", "point" ],
@@ -981,42 +1072,59 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         ds_state_post.to_netcdf(state_post, engine='h5netcdf')
         print(f"State data saved to {state_post}")
 
-        var = ["Rainfall_mm", "Snowfall_mm", "Melting_mm", "Refreezing_mm", "Outflow_mm", "Sf_daily_cum",
-                "SWE_mm", "Snow_Age", "H_D_m", "Theta_w", "H_S_m", "Rho_S_kg_m3"]
 
         ds_output = xr.Dataset(
             {
-                "Rainfall_mm": xr.DataArray(output_matrix_ensemble[:, :,  0,:],  dims=["time","ensemble", "point" ],
+                "Rainfall_mm": xr.DataArray(output_vector_point[ :, 0,:],  dims=["time", "point" ],
                                             coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Snowfall_mm": xr.DataArray(output_matrix_ensemble[:, :, 1,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Melting_mm": xr.DataArray(output_matrix_ensemble[:, :, 2,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Refreezing_mm": xr.DataArray(output_matrix_ensemble[:, :, 3,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Outflow_mm": xr.DataArray(output_matrix_ensemble[:, :, 4,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Sf_daily_cum": xr.DataArray(output_matrix_ensemble[:, :, 5,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "SWE_mm": xr.DataArray(output_matrix_ensemble[:, :, 10,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Snow_Age": xr.DataArray(output_matrix_ensemble[:, :, 11,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "H_D_m": xr.DataArray(output_matrix_ensemble[:, :, 12,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Theta_w": xr.DataArray(output_matrix_ensemble[:, :, 13,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "H_S_m": xr.DataArray(output_matrix_ensemble[:, :, 14,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
-                "Rho_S_kg_m3": xr.DataArray(output_matrix_ensemble[:, :, 15,:], dims=["time","ensemble", "point" ],
-                                            coords={"time": Time , "ensemble": np.arange(N),  "point": np.arange(n_obs) }),
+                "Snowfall_mm": xr.DataArray(output_vector_point[ :, 1,:], dims=["time", "point" ],
+                                            coords={"time": Time ,  "point": np.arange(n_obs) }),
+                "Melting_mm": xr.DataArray(output_vector_point[ :, 2,:], dims=["time", "point" ],
+                                            coords={"time": Time ,"point": np.arange(n_obs) }),
+                "Refreezing_mm": xr.DataArray(output_vector_point[:, 3,:], dims=["time","point" ],
+                                            coords={"time": Time ,  "point": np.arange(n_obs) }),
+                "Outflow_mm": xr.DataArray(output_vector_point[ :, 4,:], dims=["time","point" ],
+                                            coords={"time": Time ,  "point": np.arange(n_obs) }),
+                "Sf_daily_cum": xr.DataArray(output_vector_point[ :, 5,:], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "SWE_mm": xr.DataArray(output_vector_point[ :, 10,:], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "Snow_Age": xr.DataArray(output_vector_point[:, 11,:], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "H_D_m": xr.DataArray(output_vector_point[:, 12,:], dims=["time","point" ],
+                                            coords={"time": Time ,   "point": np.arange(n_obs) }),
+                "Theta_w": xr.DataArray(output_vector_point[:, 13,:], dims=["time","point" ],
+                                            coords={"time": Time ,  "point": np.arange(n_obs) }),
+                "H_S_m": xr.DataArray(output_vector_point[ :, 14,:], dims=["time","point" ],
+                                            coords={"time": Time ,   "point": np.arange(n_obs) }),
+                "Rho_S_kg_m3": xr.DataArray(output_vector_point[ :, 15,:], dims=["time","point" ],
+                                            coords={"time": Time ,   "point": np.arange(n_obs) }),
 
             }
         )
         # Save the dataset to NetCDF
-        output_ensemble = os.path.join(data_settings['data']['output_file']['folder_name'], f"output_ensemble_{start}_{end}.nc")
-        ds_output.to_netcdf(output_ensemble, engine='h5netcdf')
-        print(f"Output ensemble data saved to {output_ensemble}")
+        output_prior = os.path.join(data_settings['data']['output_file']['folder_name'], f"output_prior_{start}_{end}.nc")
+        ds_output.to_netcdf(output_prior, engine='h5netcdf')
+        print(f"Output ensemble data saved to {output_prior}")
+
+
+        # save the post assimilation output_a_mean, ONLY SWE and HS
+        ds_output_post = xr.Dataset(
+            {
+                "SWE_mm": xr.DataArray( output_a_mean[:, 0, :], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+                "H_S_m": xr.DataArray( output_a_mean[:, 1, :], dims=["time", "point" ],
+                                            coords={"time": Time , "point": np.arange(n_obs) }),
+
+            }
+        )
+
+        # Save the dataset to NetCDF
+        output_post = os.path.join(data_settings['data']['output_file']['folder_name'], f"output_post_{start}_{end}.nc")
+        ds_output_post.to_netcdf(output_post, engine='h5netcdf')
+        print(f"Output data saved to {output_post}")
+
+
 
         return  None
 
@@ -1223,7 +1331,7 @@ if __name__ == "__main__":
     results = []
     if calibrate == 0 and data_assimilation == 0:
         # Define the time slices
-        slice_list = [ ("2015-10-01", "2018-09-30")]
+        slice_list = [ (alg_time_start, alg_time_end)]
         for slice_start, slice_end in slice_list:
 
             mrad, mr, window_melting,alpha, lat, lon,values = [], [], [], [], [],[],[]

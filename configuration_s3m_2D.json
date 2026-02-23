@@ -32,7 +32,7 @@
       "slope":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/FILES/SLOPE_VDA_1km.tif",
       "comparison_ol": 0,
       "downscaled": 0,
-      "comparison_ol_meteo": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/S3M_MeteoData_20181001_20190930.nc",
+      "comparison_ol_meteo": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/input_meteo/S3M_MeteoData_20071001_20240930.nc",
       "ncdf": 1,
       "time_series_obs":"/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/dict.pkl",
        "obs_mask": "/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/obs_mask_vda.pkl",
@@ -45,25 +45,25 @@
        "method" : "nearest",
        "perturbations": {
         "per_Obs":1,
-         "N":2,
+         "N":100,
         "folder_pkl":"/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/",
-        "file_pkl": "quantile_data_{source_file_datetime}.pkl",
+        "file_pkl": "quantile_data_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl",
         "interpolation_kind": "linear",
-         "R": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_matrices_{source_file_datetime}.pkl",
-         "statistics": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_{source_file_datetime}.pkl",
-         "R_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_{source_file_datetime}.pkl",
-         "statistics_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_{source_file_datetime}.pkl",
+         "R": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_matrices_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl",
+         "statistics": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl",
+         "R_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl",
+         "statistics_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl",
          "L_tilde" : "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/L_tilde.pkl",
         "L0":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/L0.pkl",
         "state_limits":  "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/state_limits.pkl",
          "inflation_deflation":{
-            "temperature":1,
-              "prc_mm": 0.3,
-               "rh":1,
+            "temperature":0.8,
+              "prc_mm":0.5,
+               "rh":0.5,
               "radiation": 1,
-              "T_10D_˚C":0.5,
-              "T_1D_˚C": 0.5},
-         "scale_mean_prec": 1,
+              "T_10D_˚C":0.3,
+              "T_1D_˚C": 0.3},
+         "scale_mean_prec": 0,
          "pert_asymm_prec": 0,
          "c_asymm_prec": 0,
         "pert_prec" : 1,
@@ -154,7 +154,7 @@
   },
 
       "output_file": {
-        "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/Open_loop_2007_2024/",
+        "folder_name": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/",
         "file_name_nc": "results_{source_file_datetime_generic}_.nc",
         "file_name": "results_{source_file_datetime_generic}_.csv",
         "file_name_plot_swe": "swe_plot_{source_file_datetime_generic}_.png",
@@ -186,11 +186,42 @@
     "file_name_cal":"logger_calibration.txt",
     "tif_name": "sample.tif",
     "calibrate":0
+    },
+
+   "LSTM": {
+     "input":
+     { "cell_1": 128,
+       "cell_2": 64,
+       "cell_3": 32,
+        "cell_4": 16,
+       "cell_dense": 4,
+        "dropout": 0.2,
+       "initial_learning_rate" : 0.01,
+       "decay_rate" : 0.95,
+       "epochs":300,
+       "patience" : 250,
+       "batch_size":24
+     },
+
+     "prior_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/prior_state_2007-10-01 00:00:00_2024-09-25 22:00:00.nc",
+     "posterior_state": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/post_state_2007-10-01 00:00:00_2024-09-25 22:00:00.nc",
+     "output_prior": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/output_prior_2007-10-01 00:00:00_2024-09-25 22:00:00.nc",
+     "output_post": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/output_post_2007-10-01 00:00:00_2024-09-25 22:00:00.nc",
+     "output_lstm": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/output_lstm_2007-10-01 00:00:00_2024-09-25 22:00:00.nc",
+     "statistics": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lstm_statistics_data.pkl",
+     "gaussianization_data": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lstm_gaussianization_data.pkl",
+     "lim_inf": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lim_inf.pkl",
+      "lim_sup": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lim_sup.pkl",
+     "figure_Loss": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/loss_plot.png",
+     "figure_comparison": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/comparison_plot.png",
+     "figure_comparison_variables" : "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/comparison_variables_plot.png",
+     "figure_initial_comparison": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/initial_comparison_plot.png",
+     "figure_distribution_check": "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/distribution_check_plot.png",
+     "file_model" : "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lstm_model.h5",
+     "lim_sup_norm" : "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lim_sup_norm.pkl",
+     "lim_inf_norm" : "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/lim_inf_norm.pkl"
     }
-
-
 }
-
 
 
 

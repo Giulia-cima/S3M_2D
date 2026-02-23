@@ -218,18 +218,25 @@ with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/obs_mask_vda.pkl',
     pickle.dump(obs_mask, f)
 
 """
+# initialize state_limits as a 2x4 array of zeros
+state_limits = np.zeros((2, 4))
 
-pkl_file= "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/state_limits.pkl"
-# open pkl file
-with open(pkl_file, 'rb') as f:
-    state_limits = pickle.load(f)
+
+# create state limits
+state_limits[0][0]=0
+state_limits[0][1]=0
+state_limits[0][2] =67.4
+state_limits[0][3]=0.5
+
+state_limits[1][0]=1000
+state_limits[1][1] = 1000
+state_limits[1][2] = 700
+state_limits[1][3] = 0.95
+
 print(state_limits)
 
-# modify state_limits
-state_limits[1][1] = 1000
-state_limits[1][0] = 1000
-state_limits[1][2] = 700
-state_limits[0][2] =67.4
+pkl_file= "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/state_limits.pkl"
+
 print(state_limits)
 
 # save state_limits

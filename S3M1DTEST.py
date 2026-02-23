@@ -350,7 +350,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
     gc.collect()
     # ------------------------------------------------------------------------------------------------------------------
     # create a figure with two subplots
-    if 0:
+    if 1:
         fig, axs = plt.subplots(2, 1, figsize=(10, 10))
 
         values = {
@@ -499,17 +499,19 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
     # ------------------------------------------------------------------------------------------------------------------
     # select only one point
     m = 6
-    hs = y[:, 6]
+    hs = y[:, 20]
     swe = np.ones_like(hs) * np.nan
     y = np.array([swe, hs]).T
-    q = perturbations_data[(6, 6)]
+    q = perturbations_data[(20, 20)]
     s= []
     for var in ["air_temp_degC", "prc_mm", "swin_wm", "rel_hum_perc", "T_albedo", "T_melting"]:
         df = q[var].sort_values("emp_rip")
         s.append(df.values)  # y, x for np.interp
 
+
+
     state_matrix = np.zeros((nt,N,4), dtype=np.float32)
-    output_matrix = np.zeros(( nt, N, 16), dtype=np.float32)
+    output_matrix = np.zeros(( nt, N, 17), dtype=np.float32)
     meteo_matrix = np.zeros(( nt, N, 6), dtype=np.float32)
     state_matrix[0, :, :] = state_vector
     output_matrix[0, :, :] = output_vector
@@ -531,15 +533,15 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
     H = np.zeros((nt, N, y.shape[1], len(state_vector)))
     Pa = np.zeros((nt, N, len(state_vector), len(state_vector)))
 
-    keys = list(statistics[(18, 18)]['statistics'].keys())
+    keys = list(statistics[(20, 20)]['statistics'].keys())
     states =[]
     outputs = []
     inputs = []
     N= int(N)
-    R1= R_dict[(18,18)]
+    R1= R_dict[(20,20)]
     R= R1["R"].values
 
-    R1_state = R_state[(0, 0)]
+    R1_state = R_state[(20, 20)]
     R_state = R1_state["R"].values
 
     # drop "key" if present
@@ -552,7 +554,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         inflat_deflat[:, :, p] = inflation_deflation[p]
     # ------------------------------------------------------------------------------------------------------------------
     for j in range(0, len(Time)):
-        meteo_inputs = meteo[j, 18, 18, :]
+        meteo_inputs = meteo[j, 20, 20, :]
         m = len(meteo_inputs)
 
         try:
@@ -599,12 +601,12 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         # CREATE EPSILON
         for p in range(m):
             key = keys[p]
-            epsilon[j, :,p] = (val_tilde[j, :,p] - statistics[(18, 18)]['statistics'][key]["mean"])
+            epsilon[j, :,p] = (val_tilde[j, :,p] - statistics[(20, 20)]['statistics'][key]["mean"])
         # --------------------------------------------------------------------------------------------------
         # INFLATION AND DEFLATION
         epsilon[j, :, :] = epsilon[j, :, :] * inflat_deflat[j,:]
         for v in range(m):
-            limits = statistics[(6, 6)]['statistics'][keys[v]]
+            limits = statistics[(7, 7)]['statistics'][keys[v]]
             if v == 1 or v == 3:  # precipitation variable
                 limits["min"] =0
             ep_min_val = np.min(epsilon[j, :, v])
@@ -817,7 +819,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             if rho_calc_inv == 0 or np.isinf(rho_calc_inv):
                 rho_calc_inv = 1 / parameters['RhoSnowMin']
 
-            d_alfa_swe = ((output_matrix[j, i, 8] * meteo_matrix[j, i, 1]) / (1000 * parameters[
+            d_alfa_swe = ((output_matrix[j, i, 8] * meteo_matrix[j, i, 3]) / (1000 * parameters[
                 'RhoW'] * 0.334)) * parameters['dt']
 
             if output_matrix[j, i, 15] == 0:
@@ -907,6 +909,9 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
         output_a_mean[j, :] = np.mean(output_a[j, :, :], axis=0)  # correct trajectory
         output_matrix[j, :, 10] = output_a[j, :, 0]
         output_matrix[j, :, 14] = output_a[j, :, 1]
+
+        print(f'Time step {j} completed')
+
         # ------------------------------------------------------------------------------------------------------
         # ------------------------------------------------------------------------------------------------------
         if 0:
@@ -916,7 +921,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
 
             new_values = {
                 'val_swe_a': output_a_mean[j, 0],
-                'val_swe_b': Xb_old[j, 0, 0] + Xb_old[j, 0, 1],
+                'val_swe_b': output_matrix_old[j, 0, 0],
                 'val_swe_open': output_vector[10],
                 'val_hs_a': output_a_mean[j, 1],
                 'val_hs_b': output_matrix_old[j, 0, 1],
@@ -945,7 +950,7 @@ def S3M_2D(mrad, mr, window_melting,alpha ,lat, lon, values, start, end,  state_
             axs[1].plot(val_x, values['val_hs_obs'], label='obs', color='red', marker='o', linestyle='None', markersize=0.5)
             axs[1].legend()
 
-            folder = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plot_update/"
+            folder = "/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/plot_update_point/"
             plt.savefig(os.path.join(folder, f'assimilation_point_{j}.png'))
 
 

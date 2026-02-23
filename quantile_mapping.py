@@ -120,8 +120,8 @@ def dataset_quantile_mapping():
     # Open the dataset
     ds = xr.open_dataset(meteo_path)
     # Define the time slices
-    start ="2015-10-01 00:00:00"
-    end = "2018-09-30 23:00:00"
+    start ="2007-10-01 00:00:00"
+    end = "2024-09-30 23:00:00"
     # slice the ds
     ds = ds.sel(time=slice(start, end))
     slice_list = [(start, end)]
@@ -243,7 +243,6 @@ def dataset_quantile_mapping():
             T_albedo = T_albedo.dropna()
             T_melting = T_melting.dropna()
 
-
             # Apply quantile mapping
             prc_mm = quantile_mapping(prc_mm, 'prc_mm')
             temperature = quantile_mapping(temperature, 'air_temp_degC')
@@ -269,6 +268,7 @@ def dataset_quantile_mapping():
             df = df.drop(df[df["prc_mm_rif"] ==0].index)
             df = df.drop("prc_mm_rif", axis=1)
 
+
             # if the df is empty  or there are NaN values in precipitation column or temperature column
             if df.empty or df["prc_mm"].isnull().any() or df["air_temp_degC"].isnull().any():
                 nearest_key = closest_station(y, x, [entry["key"] for entry in quantile_data_list])
@@ -281,6 +281,7 @@ def dataset_quantile_mapping():
             else:
                 # continue from here
                 R = df.corr()
+
                 print(R)
 
                 print(f"Correlation matrix computed for station at  lon: {x}, lat: {y} in {time.time() - t0:.2f} seconds")
@@ -371,7 +372,7 @@ def R_state_matrix():
     R_dict_list = []
     statistics_dict_list = []
     # Specify the file path
-    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/Open_loop_2015_2018/state_data_2015-10-01_2018-09-30.nc'
+    file_path = '/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/open_loop_2007-2024/state_data_2007-10-01 00:00:00_2024-09-30 23:00:00.nc'
     # Load the NetCDF file
     data = xr.open_dataset(file_path)
     station_list = pandas.read_csv('/home/idrologia/share/PhD_GiuliaBlandini_dati/DATI/STATION_ID_VDA.csv')
@@ -470,10 +471,10 @@ def R_state_matrix():
 
 
     # Save output files
-    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2015-10-01 00:00:00_2018-09-30 23:00:00.pkl', 'wb') as f:
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/R_state_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl', 'wb') as f:
         pickle.dump(R_dict, f)
 
-    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_2015-10-01 00:00:00_2018-09-30 23:00:00.pkl', 'wb') as f:
+    with open('/home/idrologia/share/PhD_GiuliaBlandini_dati/OUTPUT_2D/quantile_mapping/statistics_state_2007-10-01 00:00:00_2024-09-30 23:00:00.pkl', 'wb') as f:
         pickle.dump(statistics_dict, f)
 
     return
@@ -781,6 +782,6 @@ def R_state_matrix_downscaled():
 if __name__ == "__main__":
     #downscaled_quantile_mapping()
     #stochastic_process()
-    dataset_quantile_mapping()
+    #dataset_quantile_mapping()
     R_state_matrix()
 
