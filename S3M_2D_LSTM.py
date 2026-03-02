@@ -13,7 +13,7 @@ from lib_data_io_json import read_file_settings
 from lib_utilis_data_proc import get_args
 from keras.models import Model
 from keras.layers import Input, LSTM, Dropout, Dense
-from keras.layers import Softmax, Multiply, Lambda
+from keras.layers import Multiply, Lambda
 import tensorflow as tf
 from sklearn.preprocessing import StandardScaler
 from sklearn.cluster import KMeans
@@ -987,6 +987,10 @@ def model_multiple_stations(station_ids):
     global lim_inf, lim_sup
     lim_sup = joblib.load(data_settings['LSTM']['lim_sup'])
     lim_inf = joblib.load(data_settings['LSTM']['lim_inf'])
+    # Compute the mean over the 43 stations of lim_sup and lim_inf for each variable
+    lim_sup =[sum(values)/len(values) for values in zip(*lim_sup.values())]
+    lim_inf=  [sum(values)/len(values) for values in zip(*lim_inf.values())]
+
     stat_all = joblib.load(data_settings['LSTM']['statistics'])
     gauss_all = joblib.load(data_settings['LSTM']['gaussianization_data'])
 
@@ -1016,9 +1020,9 @@ def model_multiple_stations(station_ids):
         gauss_data = gauss_all[sid]
 
         # Prepare observed snow depth
-        df = obs[list(obs.keys())[sid]].set_index('time').resample('h').asfreq().reindex(time_index)
+        df = ( obs[list(obs.keys())[sid]] .drop_duplicates(subset='time') .set_index('time').resample('h').asfreq() .reindex(time_index))
         df = hydrological_year(df)
-        Snow_depth_obs = df['Snow_depth_cm'].fillna(method='ffill', limit=3).fillna(method='bfill', limit=3).fillna(0).values / 100
+        Snow_depth_obs = (df['Snow_depth_cm'].ffill(limit=6).bfill(limit=6).fillna(0).values / 100)
         all_obs[sid] = Snow_depth_obs
 
         # Prepare meteorological inputs
@@ -1059,15 +1063,16 @@ def model_multiple_stations(station_ids):
             'albedo_post': quantile_mapping(posterior_df['albedo'], 'albedo')
         }
 
-        all_input[sid] = pd.DataFrame(qm_in)
-        all_target[sid] = pd.DataFrame(qm_target)
-        all_output_prior[sid] = prior_state_station
-        all_output_post[sid] = posterior_state_station
+        all_input[sid] =qm_in
+        all_target[sid] = qm_target
+        all_output_prior[sid] = output_prior.sel(point=sid)
+        all_output_post[sid] = output_post.sel(point=sid)
 
-    # ------------------ Combine all stations into single tensors ------------------
+    # ------------------ Combine all stations into single tensors ----------------
+
     feature_dim = len(feature_names)
     target_dim = len(target_names)
-    n_total = sum(len(all_input[sid]) for sid in station_ids)
+    n_total =  sum(len(all_input[sid]['Rain']) for sid in station_ids)
 
     X_all = np.zeros((n_total, feature_dim), dtype=np.float32)
     y_all = np.zeros((n_total, target_dim), dtype=np.float32)
@@ -1075,9 +1080,9 @@ def model_multiple_stations(station_ids):
 
     start = 0
     for sid in station_ids:
-        n = len(all_input[sid])
-        X_all[start:start+n, :] = all_input[sid][feature_names].values
-        y_all[start:start+n, :] = all_target[sid][target_names].values
+        n = len(all_input[sid]['Rain'])
+        X_all[start:start+n, :] = np.column_stack([all_input[sid][k] for k in feature_names])
+        y_all[start:start+n, :] = np.column_stack([all_target[sid][k] for k in target_names])
         station_map.extend([sid]*n)
         start += n
 
@@ -1085,8 +1090,8 @@ def model_multiple_stations(station_ids):
     y_all = y_all.reshape((n_total, 1, target_dim))
 
     # ------------------ Split train/val/test (simple split across time) ------------------
-    n_train = int(0.7*n_total)
-    n_val = int(0.15*n_total)
+    n_train = int(0.6*n_total)
+    n_val = int(0.2*n_total)
     n_test = n_total - n_train - n_val
 
     train_X, val_X, test_X = X_all[:n_train], X_all[n_train:n_train+n_val], X_all[n_train+n_val:]
@@ -1105,60 +1110,108 @@ def model_multiple_stations(station_ids):
     batch_size = data_settings['LSTM']['input']['batch_size']
     patience = data_settings['LSTM']['input']['patience']
     epochs = data_settings['LSTM']['input']['epochs']
-
-    inputs = Input(shape=input_shape)
-    x = LSTM(cell_1, return_sequences=True)(inputs)
+    inputs =  Input(shape=input_shape)
+    """  
+    x = LSTM( ell_1, return_sequences=True)(inputs)
     x = LSTM(cell_2, return_sequences=True)(x)
     x = LSTM(cell_3, return_sequences=True)(x)
     x = Dropout(drop)(x)
     outputs = Dense(target_dim)(x[:, -1, :])  # last timestep
     model = Model(inputs, outputs)
+    """
+    model = keras.Sequential()
+    # add a LSTM layer with cell_1 units and return sequences
+    model.add(LSTM(cell_1, return_sequences=True, input_shape=input_shape))
+    model.add(LSTM(cell_2, return_sequences=True))
+    model.add(LSTM(cell_3, return_sequences=True))
+    model.add(Dropout(drop))
+    model.add(Dense(cell_dense))
 
-    optimizer = keras.optimizers.SGD(learning_rate=initial_lr)
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=initial_lr,
+        decay_steps= 100000,  # adjust based on dataset size and batch size
+        decay_rate=decay_rate,
+        staircase=True  # if True, decay in steps; if False, decay smoothly
+    )
+    optimizer = keras.optimizers.SGD(learning_rate=lr_schedule)
     model.compile(loss=custom_loss, optimizer=optimizer, metrics=['mse'])
 
     callback = keras.callbacks.EarlyStopping(patience=patience, restore_best_weights=True)
     history = model.fit(train_X, train_y, validation_data=(val_X, val_y),
                         epochs=epochs, batch_size=batch_size, callbacks=[callback], shuffle=False, verbose=2)
-
+    # plot history
+    plt.figure(figsize=(5.5, 4))
+    plt.plot(smooth(history.history['loss'], 5), label='Train Loss')
+    plt.plot(smooth(history.history['val_loss'], 5), label='Val Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training History')
+    plt.grid(True, linestyle='--', alpha=0.4)
+    plt.legend(frameon=False)
+    plt.tight_layout()
+    plt.savefig(data_settings['LSTM']['figure_Loss_multi_station'])
     # ------------------ Predictions and RMSE per station ------------------
     test_preds = model.predict(test_X)
+    # reshape test_preds to (n_test, target_dim)
+    test_preds = test_preds.reshape((n_test, target_dim))
+
     inv_qm_all = {}
     for sid in station_ids:
         idx = np.where(station_test_map == sid)[0]
+        if idx.size == 0:
+            continue
         inv_qm = np.zeros((len(idx), target_dim))
         gauss_data = gauss_all[sid]
-        for t, key in enumerate(target_names_test):
-            for var in gauss_data:
+        for var in gauss_data.keys():
+            for t, key in enumerate(target_names_test):
                 if key in gauss_data[var]:
-                    inv_qm[:, t] = inverse_quantile_mapping(test_preds[idx, t], gauss_data[var], key)
+                 inv_qm[:, t] = inverse_quantile_mapping(test_preds[idx,t], gauss_data[var],key)
+
         inv_qm_all[sid] = inv_qm
+        # set values below 0 to 0
+        inv_qm = np.where(inv_qm < 0, 0, inv_qm)
 
         # compute SWE/HS
         SWE_lstm = inv_qm[:, 0] + inv_qm[:, 1]
         zero_mask = SWE_lstm == 0
         HS_lstm = (inv_qm[:, 0]/997) + (inv_qm[:, 1]/inv_qm[:, 2])
         HS_lstm = np.where(zero_mask, 0, HS_lstm)
+        obs_station = all_obs[sid]
 
-        obs_station = all_obs[sid][station_test_map==sid]
-        valid_idx = ~np.isnan(obs_station) & ~np.isnan(HS_lstm)
-        rmse_hs = np.sqrt(np.mean((HS_lstm[valid_idx] - obs_station[valid_idx])**2))
+        if len(obs_station) != len(HS_lstm):
+             print(f"Warning: Length mismatch for station {sid} → obs: {len(obs_station)}, LSTM: {len(HS_lstm)}")
+             min_len = min(len(obs_station), len(HS_lstm))
+             obs_station = obs_station[:min_len]
+             HS_lstm = HS_lstm[:min_len]
+             all_output_prior[sid] = all_output_prior[sid].isel(time=slice(0, min_len))
+             all_output_post[sid] = all_output_post[sid].isel(time=slice(0, min_len))
+
+        try:
+                # slice observation  to match the period of predictions
+                valid_idx = ~np.isnan(obs_station) & ~np.isnan(HS_lstm)
+                rmse_hs = np.sqrt(np.mean((obs_station[valid_idx] - HS_lstm[valid_idx])**2))
+
+
+        except Exception as e:
+                rmse_hs = np.nan
+
         print(f"Station {sid} → RMSE HS: {rmse_hs:.4f} m")
-
         # plot comparison
         fig, axs = plt.subplots(2, 1, figsize=(12, 8))
-        axs[0].plot(all_output_prior[sid]['SWE_mm'].values[station_test_map==sid], label='Prior SWE')
-        axs[0].plot(all_output_post[sid]['SWE_mm'].values[station_test_map==sid], label='Posterior SWE')
+        axs[0].plot(all_output_prior[sid]['SWE_mm'].values[:len(SWE_lstm)], label='Prior SWE')
+        axs[0].plot(all_output_post[sid]['SWE_mm'].values[:len(SWE_lstm)], label='Posterior SWE')
         axs[0].plot(SWE_lstm, label='LSTM SWE')
         axs[0].set_title(f'SWE Comparison Station {sid}')
-        axs[0].legend(); axs[0].grid(True)
+        axs[0].legend()
+        axs[0].grid(True)
 
-        axs[1].plot(all_output_prior[sid]['H_S_m'].values[station_test_map==sid], label='Prior HS')
-        axs[1].plot(all_output_post[sid]['H_S_m'].values[station_test_map==sid], label='Posterior HS')
+        axs[1].plot(all_output_prior[sid]['H_S_m'].values[:len(HS_lstm)], label='Prior HS')
+        axs[1].plot(all_output_post[sid]['H_S_m'].values[:len(HS_lstm)], label='Posterior HS')
         axs[1].plot(HS_lstm, label='LSTM HS')
         axs[1].plot(obs_station, label='Observed', marker='o', linestyle='None')
         axs[1].set_title(f'HS Comparison Station {sid}')
-        axs[1].legend(); axs[1].grid(True)
+        axs[1].legend()
+        axs[1].grid(True)
 
         plt.tight_layout()
         plt.savefig(data_settings['LSTM']['figure_comparison'].replace('.png', f'_station_{sid}.png'))
@@ -1177,4 +1230,7 @@ def model_multiple_stations(station_ids):
 
 
 if __name__ == "__main__" :
-    model_single_station()
+    #model_single_station()
+    # list of ids from 0 to 42
+    ids = list(range(43))
+    model_multiple_stations(ids)
